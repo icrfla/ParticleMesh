@@ -34,15 +34,16 @@ void Weight(struct grid3D *grid,struct particle3D *particle,int type){
 	//type = 0/1/2  => NGP/CIC/TSC
 	for(int i=0;i < particle->number;i++){
 		int lx,ly,lz,sx,sy,sz;
-		lx = particle->x[i]/grid->dx;
-		ly = particle->y[i]/grid->dy;
-		lz = particle->z[i]/grid->dz;
+		double shift = -grid->L/2;	//make (0,0) to be in the center of grid.
+		lx = (particle->x[i]-shift)/grid->dx;
+		ly = (particle->y[i]-shift)/grid->dy;
+		lz = (particle->z[i]-shift)/grid->dz;
 
 		if(type == 0){
 			//NGP
-			sx = particle->x[i]-lx * grid->dx - 0.5*grid->dx + 1;
-			sy = particle->y[i]-ly * grid->dy - 0.5*grid->dy + 1;
-			sz = particle->z[i]-lz * grid->dz - 0.5*grid->dz + 1;
+			sx = particle->x[i]-shift-lx * grid->dx - 0.5*grid->dx + 1;
+			sy = particle->y[i]-shift-ly * grid->dy - 0.5*grid->dy + 1;
+			sz = particle->z[i]-shift-lz * grid->dz - 0.5*grid->dz + 1;
 			grid->density[(lx+sx)+(ly+sy) * grid->Nx + (lz+sz) * grid->Nx * grid->Ny] += particle->mass[i];
 		}else if(type == 1){
 			//CIC
@@ -50,8 +51,8 @@ void Weight(struct grid3D *grid,struct particle3D *particle,int type){
 				for(int j=0;j<4;j++){
 					int p = j / 2;
 					int q = j % 2;
-					double wFactor = (1-fabs(particle->x[i]-(lx+p)*grid->dx)/grid->dx)*(1-fabs(particle->y[i]-(ly+q)*grid->dy)/grid->dy);
-					wFactor *= (1-fabs(particle->z[i]-(lz+zz)*grid->dz)/grid->dz);
+					double wFactor = (1-fabs(particle->x[i]-shift-(lx+p)*grid->dx)/grid->dx)*(1-fabs(particle->y[i]-shift-(ly+q)*grid->dy)/grid->dy);
+					wFactor *= (1-fabs(particle->z[i]-shift-(lz+zz)*grid->dz)/grid->dz);
 					grid->density[(lx+p)+(ly+q)*grid->Nx + (lz+zz) * grid->Nx * grid->Ny] += particle->mass[i] * wFactor;
 				}
 			}
@@ -61,15 +62,15 @@ void Weight(struct grid3D *grid,struct particle3D *particle,int type){
 			//xxx
 			//xox
 			//xxx
-			lx = (particle->x[i]+0.5*grid->dx)/grid->dx;	//Find the nearest point in lattice index.
-			ly = (particle->y[i]+0.5*grid->dy)/grid->dy;
-			lz = (particle->z[i]+0.5*grid->dz)/grid->dz;
+			lx = (particle->x[i]-shift+0.5*grid->dx)/grid->dx;	//Find the nearest point in lattice index.
+			ly = (particle->y[i]-shift+0.5*grid->dy)/grid->dy;
+			lz = (particle->z[i]-shift+0.5*grid->dz)/grid->dz;
 			double weightX[3];	//Weight factor in x direction for 3 affected points
 			double weightY[3];
 			double weightZ[3];
 			//Construct weighting factor
 			for(int xx=-1;xx<2;xx++){
-				double ddx = fabs(particle->x[i]-(lx+xx)*grid->dx);
+				double ddx = fabs(particle->x[i]-shift-(lx+xx)*grid->dx);
 				if(ddx <= grid->dx/2){
 					weightX[xx+1] = 3.0/4 - pow(ddx / grid->dx,2);
 				}else if(ddx<= grid->dx/2*3.0){
@@ -81,7 +82,7 @@ void Weight(struct grid3D *grid,struct particle3D *particle,int type){
 				
 			}
 			for(int yy=-1;yy<2;yy++){
-				double ddy = fabs(particle->y[i]-(ly+yy)*grid->dy);
+				double ddy = fabs(particle->y[i]-shift-(ly+yy)*grid->dy);
 				if(ddy <= grid->dy/2){
 					weightY[yy+1] = 3.0/4 - pow(ddy / grid->dy,2);
 				}else if(ddy <= grid->dy/2*3.0){
@@ -91,7 +92,7 @@ void Weight(struct grid3D *grid,struct particle3D *particle,int type){
 				}
 			}
 			for(int zz=-1;zz<2;zz++){
-				double ddz = fabs(particle->z[i]-(lz+zz)*grid->dz);
+				double ddz = fabs(particle->z[i]-shift-(lz+zz)*grid->dz);
 				if(ddz <= grid->dz/2){
 					weightZ[zz+1] = 3.0/4 - pow(ddz / grid->dz,2);
 				}else if(ddz <= grid->dz/2*3.0){
@@ -110,7 +111,7 @@ void Weight(struct grid3D *grid,struct particle3D *particle,int type){
 						indy = ((ly+yy)+grid->Ny)%grid->Ny;
 						indz = ((lz+zz)+grid->Nz)%grid->Nz;
 						int index = indx + indy*grid->Nx + indz*grid->Nx*grid->Ny;
-						grid->density[index]=weightX[xx+1]*weightY[yy+1]*weightZ[zz+1]*particle->mass[i];
+						grid->density[index]+=weightX[xx+1]*weightY[yy+1]*weightZ[zz+1]*particle->mass[i];
 					}
 					
 				}
@@ -123,17 +124,18 @@ void WeightForce(struct grid3D *grid,struct particle3D *particle,int type){
 	//type = 0/1/2  => NGP/CIC/TSC
 	for(int i=0;i < particle->number;i++){
 		int lx,ly,lz,sx,sy,sz;
-		lx = particle->x[i]/grid->dx;
-		ly = particle->y[i]/grid->dy;
-		lz = particle->z[i]/grid->dz;
+		double shift = -grid->L/2;	//make (0,0) to be in the center of grid.
+		lx = (particle->x[i]-shift)/grid->dx;
+		ly = (particle->y[i]-shift)/grid->dy;
+		lz = (particle->z[i]-shift)/grid->dz;
 		particle->Fx[i]=0.0;
 		particle->Fy[i]=0.0;
 		particle->Fz[i]=0.0;
 
 		if(type == 0){
-			sx = particle->x[i]-lx * grid->dx - 0.5*grid->dx + 1;
-			sy = particle->y[i]-ly * grid->dy - 0.5*grid->dy + 1;
-			sz = particle->z[i]-lz * grid->dz - 0.5*grid->dz + 1;
+			sx = particle->x[i]-shift-lx * grid->dx - 0.5*grid->dx + 1;
+			sy = particle->y[i]-shift-ly * grid->dy - 0.5*grid->dy + 1;
+			sz = particle->z[i]-shift-lz * grid->dz - 0.5*grid->dz + 1;
 			int pos = (lx+sx)+(ly+sy) * grid->Nx + (lz+sz) * grid->Nx * grid->Ny;
 			particle->Fx[i]=grid->Fx[pos];
 			particle->Fy[i]=grid->Fy[pos];
@@ -143,8 +145,8 @@ void WeightForce(struct grid3D *grid,struct particle3D *particle,int type){
 				for(int j=0;j<4;j++){
 					int p = j / 2;
 					int q = j % 2;
-					double wFactor = (1-fabs(particle->x[i]-(lx+p)*grid->dx)/grid->dx)*(1-fabs(particle->y[i]-(ly+q)*grid->dy)/grid->dy);
-					wFactor *= (1-fabs(particle->z[i]-(lz+zz)*grid->dz)/grid->dz);
+					double wFactor = (1-fabs(particle->x[i]-shift-(lx+p)*grid->dx)/grid->dx)*(1-fabs(particle->y[i]-shift-(ly+q)*grid->dy)/grid->dy);
+					wFactor *= (1-fabs(particle->z[i]-shift-(lz+zz)*grid->dz)/grid->dz);
 					int pos = (lx+p)+(ly+q)*grid->Nx + (lz+zz) * grid->Nx * grid->Ny;
 					particle->Fx[i] += grid->Fx[pos] * wFactor;
 					particle->Fy[i] += grid->Fy[pos] * wFactor;
@@ -157,15 +159,15 @@ void WeightForce(struct grid3D *grid,struct particle3D *particle,int type){
 			//xxx
 			//xox
 			//xxx
-			lx = (particle->x[i]+0.5*grid->dx)/grid->dx;	//Find the nearest point in lattice index.
-			ly = (particle->y[i]+0.5*grid->dy)/grid->dy;
-			lz = (particle->z[i]+0.5*grid->dz)/grid->dz;
+			lx = (particle->x[i]-shift+0.5*grid->dx)/grid->dx;	//Find the nearest point in lattice index.
+			ly = (particle->y[i]-shift+0.5*grid->dy)/grid->dy;
+			lz = (particle->z[i]-shift+0.5*grid->dz)/grid->dz;
 			double weightX[3];	//Weight factor in x direction for 3 affected points
 			double weightY[3];
 			double weightZ[3];
 			//Construct weighting factor
 			for(int xx=-1;xx<2;xx++){
-				double ddx = fabs(particle->x[i]-(lx+xx)*grid->dx);
+				double ddx = fabs(particle->x[i]-shift-(lx+xx)*grid->dx);
 				if(ddx <= grid->dx/2){
 					weightX[xx+1] = 3.0/4 - pow(ddx / grid->dx,2);
 				}else if(ddx<= grid->dx/2*3.0){
@@ -177,7 +179,7 @@ void WeightForce(struct grid3D *grid,struct particle3D *particle,int type){
 				
 			}
 			for(int yy=-1;yy<2;yy++){
-				double ddy = fabs(particle->y[i]-(ly+yy)*grid->dy);
+				double ddy = fabs(particle->y[i]-shift-(ly+yy)*grid->dy);
 				if(ddy <= grid->dy/2){
 					weightY[yy+1] = 3.0/4 - pow(ddy / grid->dy,2);
 				}else if(ddy <= grid->dy/2*3.0){
@@ -187,7 +189,7 @@ void WeightForce(struct grid3D *grid,struct particle3D *particle,int type){
 				}
 			}
 			for(int zz=-1;zz<2;zz++){
-				double ddz = fabs(particle->z[i]-(lz+zz)*grid->dz);
+				double ddz = fabs(particle->z[i]-shift-(lz+zz)*grid->dz);
 				if(ddz <= grid->dz/2){
 					weightZ[zz+1] = 3.0/4 - pow(ddz / grid->dz,2);
 				}else if(ddz <= grid->dz/2*3.0){
@@ -231,8 +233,8 @@ int main(){
 
 	//================Grid 
 	struct grid3D grid;
-	grid.L = 10.0;		//Length of box
-	grid.Nx = 11;		//Number of grid in x direction.
+	grid.L = 10.0;		//Length of box (-L/2 ~ L/2)
+	grid.Nx = 11;		//Number of grid in x direction. (Should be an odd number)
 	grid.Ny = grid.Nx;
 	grid.Nz = grid.Nx;
 	grid.N = grid.Nx * grid.Ny * grid.Nz;
@@ -272,9 +274,9 @@ int main(){
 	//Initialize Initial Position of Particle.
 	for (int i = 0; i < myParticle.number; ++i){
 		myParticle.mass[i]=1.0;
-		myParticle.x[i]=gsl_rng_uniform(rng) * grid.L;
-		myParticle.y[i]=gsl_rng_uniform(rng) * grid.L;
-		myParticle.z[i]=gsl_rng_uniform(rng) * grid.L;
+		myParticle.x[i]=gsl_rng_uniform(rng) * grid.L - grid.L/2;
+		myParticle.y[i]=gsl_rng_uniform(rng) * grid.L - grid.L/2;
+		myParticle.z[i]=gsl_rng_uniform(rng) * grid.L - grid.L/2;
 		printf("At (%f,%f) \n",myParticle.x[i],myParticle.y[i]);
 	}
 

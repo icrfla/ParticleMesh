@@ -28,13 +28,14 @@ void Weight(struct grid2D *grid,struct particle2D *particle,int type){
 	//type = 0/1/2  => NGP/CIC/TSC
 	for(int i=0;i < particle->number;i++){
 		int lx,ly,sx,sy;
-		lx = particle->x[i]/grid->dx;
-		ly = particle->y[i]/grid->dy;
+		double shift = -grid->L/2;	//make (0,0) to be in the center of grid.
+		lx = (particle->x[i]-shift)/grid->dx;
+		ly = (particle->y[i]-shift)/grid->dy;
 
 		if(type == 0){
 			//NGP
-			sx = particle->x[i]-lx * grid->dx - 0.5*grid->dx + 1;
-			sy = particle->y[i]-ly * grid->dy - 0.5*grid->dy + 1;
+			sx = particle->x[i]-shift-lx * grid->dx - 0.5*grid->dx + 1;
+			sy = particle->y[i]-shift-ly * grid->dy - 0.5*grid->dy + 1;
 			grid->density[(lx+sx)+(ly+sy) * grid->Nx] += particle->mass[i];
 		}else if(type == 1){
 			//CIC
@@ -43,7 +44,7 @@ void Weight(struct grid2D *grid,struct particle2D *particle,int type){
 			for(int j=0;j<4;j++){
 				int p = j / 2;
 				int q = j % 2;
-				double wFactor = (1-fabs(particle->x[i]-(lx+p)*grid->dx)/grid->dx)*(1-fabs(particle->y[i]-(ly+q)*grid->dy)/grid->dy);
+				double wFactor = (1-fabs(particle->x[i]-shift-(lx+p)*grid->dx)/grid->dx)*(1-fabs(particle->y[i]-shift-(ly+q)*grid->dy)/grid->dy);
 				grid->density[(lx+p)+(ly+q)*grid->Nx] += particle->mass[i] * wFactor;
 			}
 		}else if(type == 2){
@@ -51,13 +52,13 @@ void Weight(struct grid2D *grid,struct particle2D *particle,int type){
 			//xxx
 			//xox
 			//xxx
-			lx = (particle->x[i]+0.5*grid->dx)/grid->dx;	//Find the nearest point in lattice index.
-			ly = (particle->y[i]+0.5*grid->dy)/grid->dy;
+			lx = (particle->x[i]-shift+0.5*grid->dx)/grid->dx;	//Find the nearest point in lattice index.
+			ly = (particle->y[i]-shift+0.5*grid->dy)/grid->dy;
 			double weightX[3];	//Weight factor in x direction for 3 affected points
 			double weightY[3];
 			//Construct weighting factor
 			for(int xx=-1;xx<2;xx++){
-				double ddx = fabs(particle->x[i]-(lx+xx)*grid->dx);
+				double ddx = fabs(particle->x[i]-shift-(lx+xx)*grid->dx);
 				if(ddx <= grid->dx/2){
 					weightX[xx+1] = 3.0/4 - pow(ddx / grid->dx,2);
 				}else if(ddx<= grid->dx/2*3.0){
@@ -69,7 +70,7 @@ void Weight(struct grid2D *grid,struct particle2D *particle,int type){
 				
 			}
 			for(int yy=-1;yy<2;yy++){
-				double ddy = fabs(particle->y[i]-(ly+yy)*grid->dy);
+				double ddy = fabs(particle->y[i]-shift-(ly+yy)*grid->dy);
 				if(ddy <= grid->dy/2){
 					weightY[yy+1] = 3.0/4 - pow(ddy / grid->dy,2);
 				}else if(ddy <= grid->dy/2*3.0){
@@ -85,7 +86,7 @@ void Weight(struct grid2D *grid,struct particle2D *particle,int type){
 					//Account for periodic boundary
 					indx = ((lx+xx)+grid->Nx)%grid->Nx;
 					indy = ((ly+yy)+grid->Ny)%grid->Ny;
-					grid->density[indx+indy*grid->Nx]=weightX[xx+1]*weightY[yy+1]*particle->mass[i];
+					grid->density[indx+indy*grid->Nx]+=weightX[xx+1]*weightY[yy+1]*particle->mass[i];
 				}
 			}
 
@@ -97,21 +98,22 @@ void WeightForce(struct grid2D *grid,struct particle2D *particle,int type){
 	//type = 0/1/2  => NGP/CIC/TSC
 	for(int i=0;i < particle->number;i++){
 		int lx,ly,sx,sy;
-		lx = particle->x[i]/grid->dx;
-		ly = particle->y[i]/grid->dy;
+		double shift = -grid->L/2;	//make (0,0) to be in the center of grid.
+		lx = (particle->x[i]-shift)/grid->dx;
+		ly = (particle->y[i]-shift)/grid->dy;
 		particle->Fx[i]=0.0;
 		particle->Fy[i]=0.0;
 
 		if(type == 0){
-			sx = particle->x[i]-lx * grid->dx - 0.5*grid->dx + 1;
-			sy = particle->y[i]-ly * grid->dy - 0.5*grid->dy + 1;
+			sx = particle->x[i]-shift-lx * grid->dx - 0.5*grid->dx + 1;
+			sy = particle->y[i]-shift-ly * grid->dy - 0.5*grid->dy + 1;
 			particle->Fx[i]=grid->Fx[(lx+sx)+(ly+sy)*grid->Nx];
 			particle->Fy[i]=grid->Fy[(lx+sx)+(ly+sy)*grid->Nx];
 		}else if(type == 1){
 			for(int j=0;j<4;j++){
 				int p = j / 2;
 				int q = j % 2;
-				double wFactor = (1-fabs(particle->x[i]-(lx+p)*grid->dx)/grid->dx)*(1-fabs(particle->y[i]-(ly+q)*grid->dy)/grid->dy);
+				double wFactor = (1-fabs(particle->x[i]-shift-(lx+p)*grid->dx)/grid->dx)*(1-fabs(particle->y[i]-shift-(ly+q)*grid->dy)/grid->dy);
 				particle->Fx[i] += grid->Fx[(lx+p)+(ly+q)*grid->Nx] * wFactor;
 				particle->Fy[i] += grid->Fy[(lx+p)+(ly+q)*grid->Nx] * wFactor;
 			}
@@ -120,13 +122,13 @@ void WeightForce(struct grid2D *grid,struct particle2D *particle,int type){
 			//xxx
 			//xox
 			//xxx
-			lx = (particle->x[i]+0.5*grid->dx)/grid->dx;	//Find the nearest point in lattice index.
-			ly = (particle->y[i]+0.5*grid->dy)/grid->dy;
+			lx = (particle->x[i]-shift+0.5*grid->dx)/grid->dx;	//Find the nearest point in lattice index.
+			ly = (particle->y[i]-shift+0.5*grid->dy)/grid->dy;
 			double weightX[3];	//Weight factor in x direction for 3 affected points
 			double weightY[3];
 			//Construct weighting factor
 			for(int xx=-1;xx<2;xx++){
-				double ddx = fabs(particle->x[i]-(lx+xx)*grid->dx);
+				double ddx = fabs(particle->x[i]-shift-(lx+xx)*grid->dx);
 				if(ddx <= grid->dx/2){
 					weightX[xx+1] = 3.0/4 - pow(ddx / grid->dx,2);
 				}else if(ddx<= grid->dx/2*3.0){
@@ -138,7 +140,7 @@ void WeightForce(struct grid2D *grid,struct particle2D *particle,int type){
 				
 			}
 			for(int yy=-1;yy<2;yy++){
-				double ddy = fabs(particle->y[i]-(ly+yy)*grid->dy);
+				double ddy = fabs(particle->y[i]-shift-(ly+yy)*grid->dy);
 				if(ddy <= grid->dy/2){
 					weightY[yy+1] = 3.0/4 - pow(ddy / grid->dy,2);
 				}else if(ddy <= grid->dy/2*3.0){
@@ -175,8 +177,8 @@ int main(){
 
 	//================Grid 
 	struct grid2D grid;
-	grid.L = 10.0;		//Length of box
-	grid.Nx = 11;		//Number of grid in x direction.
+	grid.L = 10.0;		//Length of box (from -L/2 ~ L/2)
+	grid.Nx = 11;		//Number of grid in x direction. (should be odd number)
 	grid.Ny = grid.Nx;
 	grid.N = grid.Nx * grid.Ny;
 	grid.dx = grid.L / (grid.Nx-1);	//-1 is because boundary (make box closed)
@@ -188,7 +190,7 @@ int main(){
 	
 
 	//================Particles
-	int NParticle=2;//Number of particles used in simulation
+	int NParticle=5;//Number of particles used in simulation
 	double massParticle=1.0;
 		
 	struct particle2D myParticle;
@@ -210,8 +212,8 @@ int main(){
 	//Initialize Initial Position of Particle.
 	for (int i = 0; i < myParticle.number; ++i){
 		myParticle.mass[i]=1.0;
-		myParticle.x[i]=gsl_rng_uniform(rng) * grid.L;
-		myParticle.y[i]=gsl_rng_uniform(rng) * grid.L;
+		myParticle.x[i]=gsl_rng_uniform(rng) * grid.L - grid.L/2;
+		myParticle.y[i]=gsl_rng_uniform(rng) * grid.L - grid.L/2;
 		printf("At (%f,%f) \n",myParticle.x[i],myParticle.y[i]);
 	}
 
