@@ -11,19 +11,19 @@
 #include <complex.h>
 using namespace std;
 
-double _fftw_2d_(int const thread_num, int const dim, int const Nx, int const Ny, 
+double parallel_poisson_solver_2d(int const thread_num, int const dim, int const Nx, int const Ny, 
   double const ori_sigma_a[], double* Fx, double *Fy, 
   double const dx, double const dy);
 
-double _2nd_order_diff_(int const Nx, int const Ny, double const phi[], 
+double _2nd_order_diff_2d(int const Nx, int const Ny, double const phi[], 
   double* Fx, double* Fy, double const dx, double const dy, 
   int const ii, int const jj );
 
-double _4th_order_diff_(int const Nx, int const Ny, double const phi[], 
-  double* Fx, double* Fy, double const dx, double const dy );
+double _4th_order_diff_2d(int const Nx, int const Ny, double const phia[], 
+  double* Fx, double* Fy, double const dx, double const dy, int const ii, int const jj );
 
-double _6th_order_diff_(int const Nx, int const Ny, double const phi[], 
-  double* Fx, double* Fy, double const dx, double const dy );
+double _6th_order_diff_2d(int const Nx, int const Ny, double const phia[], 
+  double* Fx, double* Fy, double const dx, double const dy, int const ii, int const jj );
 
 int main( int argc, char *argv[] ){
 
@@ -48,12 +48,12 @@ int main( int argc, char *argv[] ){
   double *Fx = (double *) malloc(Nx*Ny * sizeof(double));
   double *Fy = (double *) malloc(Nx*Ny * sizeof(double));
 
-  _fftw_2d_(thread_num, dim, Nx, Ny, sigma_a, Fx, Fy, dx, dy);
+  parallel_poisson_solver_2d(thread_num, dim, Nx, Ny, sigma_a, Fx, Fy, dx, dy);
 
   return 0;
 }
 
-double _fftw_2d_(int const thread_num, int const dim, int const Nx, int const Ny, 
+double parallel_poisson_solver_2d(int const thread_num, int const dim, int const Nx, int const Ny, 
   double const ori_sigma_a[], double* Fx, double *Fy, double const dx, double const dy) {
 
   omp_set_num_threads( thread_num );
@@ -135,7 +135,7 @@ double _fftw_2d_(int const thread_num, int const dim, int const Nx, int const Ny
     # pragma for
     for (ii=0; ii<Nx; ii+=1){
       for (jj=0; jj<Ny; jj+=1){     
-        _2nd_order_diff_(Nx, Ny, phi_total, Fx, Fy, dx, dy, ii, jj);
+        _2nd_order_diff_2d(Nx, Ny, phi_total, Fx, Fy, dx, dy, ii, jj);
       }
     }
   }
@@ -161,7 +161,7 @@ double _fftw_2d_(int const thread_num, int const dim, int const Nx, int const Ny
   return 0;
 }
 
-double _2nd_order_diff_(int const Nx, int const Ny, double const phia[], 
+double _2nd_order_diff_2d(int const Nx, int const Ny, double const phia[], 
   double* Fx, double* Fy, double const dx, double const dy, int const ii, int const jj ) {
 
   double factor1 = -1.*(1.+1.)/dx;
@@ -169,6 +169,63 @@ double _2nd_order_diff_(int const Nx, int const Ny, double const phia[],
 
   Fx[ ii*Nx + jj ] = factor1*( phia[ ( (Nx+ii+1)%Nx )*Ny + jj ] - phia[ ( (Nx+ii-1)%Nx )*Ny + jj ] );
   Fy[ ii*Nx + jj ] = factor2*( phia[ ii*Ny + (Ny+jj+1)%Ny ] - phia[ ii*Ny + (Ny+jj-1)%Ny ] );  
+
+  return 0;
+
+}
+
+double _4th_order_diff_2d(int const Nx, int const Ny, double const phia[], 
+  double* Fx, double* Fy, double const dx, double const dy, int const ii, int const jj ) {
+
+  double factor1 = -1./(12.*dx);
+  double factor2 = -1./(12.*dy);
+
+  Fx[ ii*Nx + jj ] = factor1*( 
+    +1.*phia[ ( (Nx+ii-2)%Nx )*Nx + jj ] 
+    -8.*phia[ ( (Nx+ii-1)%Nx )*Nx + jj ] 
+    +8.*phia[ ( (Nx+ii+1)%Nx )*Nx + jj ]
+    -1.*phia[ ( (Nx+ii+2)%Nx )*Nx + jj ]
+    );
+  
+
+  Fy[ ii*Nx + jj ] = factor2*( 
+    +1.*phia[ ii*Nx + (Ny+jj-2)%Ny ] 
+    -8.*phia[ ii*Nx + (Ny+jj-1)%Ny ] 
+    +8.*phia[ ii*Nx + (Ny+jj+1)%Ny ] 
+    -1.*phia[ ii*Nx + (Ny+jj+2)%Ny ] 
+    );
+
+
+  return 0;
+
+}
+
+
+double _6th_order_diff_2d(int const Nx, int const Ny, double const phia[], 
+  double* Fx, double* Fy, double const dx, double const dy, int const ii, int const jj ) {
+
+  double factor1 = -1./(60.*dx);
+  double factor2 = -1./(60.*dy);
+
+  Fx[ ii*Nx + jj ] = factor1*( 
+    -1.* phia[ ( (Nx+ii-3)%Nx )*Nx + jj ]
+    +9.* phia[ ( (Nx+ii-2)%Nx )*Nx + jj ] 
+    -45.*phia[ ( (Nx+ii-1)%Nx )*Nx + jj ] 
+    +45.*phia[ ( (Nx+ii+1)%Nx )*Nx + jj ]
+    -9.* phia[ ( (Nx+ii+2)%Nx )*Nx + jj ]
+    +1.* phia[ ( (Nx+ii+3)%Nx )*Nx + jj ]
+    );
+  
+
+  Fy[ ii*Nx + jj ] = factor2*( 
+    -1.* phia[ ii*Nx + (Ny+jj-3)%Ny ] 
+    +9.* phia[ ii*Nx + (Ny+jj-2)%Ny ] 
+    -45.*phia[ ii*Nx + (Ny+jj-1)%Ny ] 
+    +45.*phia[ ii*Nx + (Ny+jj+1)%Ny ] 
+    -9.* phia[ ii*Nx + (Ny+jj+2)%Ny ] 
+    +1.* phia[ ii*Nx + (Ny+jj+3)%Ny ] 
+    );
+
 
   return 0;
 
