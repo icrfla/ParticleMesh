@@ -62,7 +62,7 @@ int main( int argc, char *argv[] ){
 
 
 
-double parallel_poisson_sovler_3d(int const thread_num, int const dim, int const Nx, int const Ny, int const Nz, 
+double parallel_force_3d(int const thread_num, int const dim, int const Nx, int const Ny, int const Nz, 
   double const ori_sigma_a[], double* Fx, double *Fy, double *Fz, 
   double const dx, double const dy, double const dz){
 
