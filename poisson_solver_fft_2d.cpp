@@ -1,81 +1,45 @@
-// g++-9 poisson_solver_fft_2d.cpp -L/usr/local/Cellar/fftw/3.3.8_1/lib -I/usr/local/Cellar/fftw/3.3.8_1/include -lfftw3
 
 #include <cstdio>
 #include <cstdlib>
-// #include <omp.h>
 #include <math.h>
 #include <string>
 #include <iostream>
 #include <time.h>
 #include <fftw3.h>
 #include <complex.h>
+
+#include "Grid.h"
+#include "Function.h"
+
 using namespace std;
 
-double force_2d(int const dim, int const Nx, int const Ny, 
-  double const ori_sigma_a[], double* Fx, double *Fy, 
-  double const dx, double const dy);
+void poisson_solver_fft_force_2d(int const dim, struct grid2D *grid) {
 
-double _2nd_order_diff_2d(int const Nx, int const Ny, double const phia[], 
-  double* Fx, double* Fy, double const dx, double const dy, int const ii, int const jj );
+  // double G_const = 6.67408e-8; // #g^-1 s^-2 cm^3 
+  double G_const = 1.; // #g^-1 s^-2 cm^3 
 
-double _4th_order_diff_2d(int const Nx, int const Ny, double const phia[], 
-  double* Fx, double* Fy, double const dx, double const dy, int const ii, int const jj );
-
-double _6th_order_diff_2d(int const Nx, int const Ny, double const phia[], 
-  double* Fx, double* Fy, double const dx, double const dy, int const ii, int const jj );
-
-int main( int argc, char *argv[] ){
-
-  int canvas_size = 20, Nx = 20, Ny = 20;
-  int dim = 2;
-  double dx = 1., dy = 1.;
-
-  double * sigma_a = (double *) malloc(Nx*Ny * sizeof(double));
-  /////////// initialization of sigma_a ///////////
-  double r2;
-  int ii, jj, lb = -1, rb = 1;
-  for (ii=lb; ii<=rb; ii+=1) {
-    for (jj=lb; jj<=rb; jj+=1) {
-      r2 = (double) (pow(ii,2)+pow(jj,2));
-      printf("ii:%d jj:%d\n", ii, jj);
-      sigma_a[ (Nx/2+ii)*Ny + (Ny/2+jj) ] = 1. * sqrt(1. - r2/1600.);
-    }
-  }
-
-  double *Fx = (double *) malloc(Nx*Ny * sizeof(double));
-  double *Fy = (double *) malloc(Nx*Ny * sizeof(double));
-
-  poisson_solver_2d(dim, Nx, Ny, sigma_a, Fx, Fy, dx, dy);
-
-  return 0;
-}
-
-double force_2d(int const dim, int const Nx, int const Ny, 
-  double const ori_sigma_a[], double* Fx, double *Fy, 
-  double const dx, double const dy) {
-
-  double G_const = 6.67408e-8; // #g^-1 s^-2 cm^3 
-  int total_n = Nx*Ny;
-  double dNx = (double) (Nx), dNy = (double) (Ny); // default Nx=Ny
+  int const Nx = grid->Nx;
+  int const Ny = grid->Ny;
+  // int total_n = Nx*Ny;
+  double dNx = (double) (grid->Nx), dNy = (double) (grid->Ny); // default Nx=Ny
   int ii, jj, index;
 
   fftw_complex *sigma_a, *fftsigma_a;
   fftw_complex *phika, *phia; 
   fftw_plan p, q;
 
-  sigma_a = (fftw_complex*) fftw_malloc(sizeof(fftw_complex)*Nx*Ny);
-  fftsigma_a = (fftw_complex*) fftw_malloc(sizeof(fftw_complex)*Nx*Ny);
-  phika = (fftw_complex*) fftw_malloc(sizeof(fftw_complex)*Nx*Ny);
-  phia = (fftw_complex*) fftw_malloc(sizeof(fftw_complex)*Nx*Ny);
+  sigma_a = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * grid->N);
+  fftsigma_a = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * grid->N);
+  phika = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * grid->N);
+  phia = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * grid->N);
 
   for (ii=0; ii<Nx; ii+=1) {
     for (jj=0; jj<Ny; jj+=1) {
       index = ii + jj*Nx;
-      sigma_a[ index ][0] = ori_sigma_a[ index ]; 
+      sigma_a[ index ][0] = grid->density[ index ]; 
       sigma_a[ index ][1] = 0.;
     }
   }
-
 
   /////////// fft ///////////
   p = fftw_plan_dft_2d(Nx, Ny, sigma_a, fftsigma_a, FFTW_FORWARD, FFTW_ESTIMATE);
@@ -99,8 +63,8 @@ double force_2d(int const dim, int const Nx, int const Ny,
   for (ii=0; ii<Nx; ii+=1){
     for (jj=0; jj<Ny; jj+=1){
       index = ii + jj*Nx;
-      phia[index][0] /= total_n;
-      phia[index][1] /= total_n;
+      phia[index][0] /= grid->N;
+      phia[index][1] /= grid->N;
     }
   }
 
@@ -109,108 +73,18 @@ double force_2d(int const dim, int const Nx, int const Ny,
   for (ii=0; ii<Nx; ii+=1){
     for (jj=0; jj<Ny; jj+=1){ 
       index = ii + jj*Nx;
-      phi_total[index] = sqrt( pow(phia[index][0],2) + pow(phia[index][1],2) );
+      grid->phi[index] = sqrt( pow(phia[index][0],2) + pow(phia[index][1],2) );
     }
   }  
 
+  ////////// calculate force based on potential //////////
   for (ii=0; ii<Nx; ii+=1){
-    for (jj=0; jj<Ny; jj+=1){     
-      _2nd_order_diff_2d(Nx, Ny, phi_total, Fx, Fy, dx, dy, ii, jj);
+    for (jj=0; jj<Ny; jj+=1){ 
+      _2nd_order_diff_2d(grid, ii, jj);
     }
   }
-
-  for (ii=0; ii<Nx; ii+=1) {
-    for (jj=0; jj<Ny; jj+=1){
-      index = ii + jj*Nx;
-      printf("recover: %3d %3d %+.5e %+.5e I vs. %+.5e %+.5e I \n",
-          ii, jj, sigma_a[index][0], sigma_a[index][1], 
-          phia[index][0], phia[index][1]);    
-    }
-  }
-
-  for (ii=0; ii<Nx; ii+=1) {
-    for (jj=0; jj<Ny; jj+=1){
-      index = ii + jj*Nx;
-      printf("ii:%3d, jj:%3d, Fx:%.5e Fy:%.5e\n",
-          ii, jj, Fx[index], Fy[index]);    
-    }
-  }
-
 
   fftw_cleanup();
 
-  return 0;
 }
 
-double _2nd_order_diff_2d(int const Nx, int const Ny, double const phia[], 
-  double* Fx, double* Fy, double const dx, double const dy, int const ii, int const jj ) {
-
-  double factor1 = -1./(2.*dx);
-  double factor2 = -1./(2.*dy);
-  int index = ii + jj*Nx;
-
-  Fx[ index ] = factor1*( phia[ ( (Nx+ii+1)%Nx ) + jj*Nx ] - phia[ ( (Nx+ii-1)%Nx ) + jj*Nx ] );
-  Fy[ index ] = factor2*( phia[ ii + ((Ny+jj+1)%Ny)*Nx ] - phia[ ii + ((Ny+jj-1)%Ny)*Nx ] );  
-
-  return 0;
-
-}
-
-double _4th_order_diff_2d(int const Nx, int const Ny, double const phia[], 
-  double* Fx, double* Fy, double const dx, double const dy, int const ii, int const jj ) {
-
-  double factor1 = -1./(12.*dx);
-  double factor2 = -1./(12.*dy);
-  int index = ii + jj*Nx;
-
-  Fx[ index ] = factor1*( 
-    +1.*phia[ ( (Nx+ii-2)%Nx ) + jj*Nx ] 
-    -8.*phia[ ( (Nx+ii-1)%Nx ) + jj*Nx ] 
-    +8.*phia[ ( (Nx+ii+1)%Nx ) + jj*Nx ]
-    -1.*phia[ ( (Nx+ii+2)%Nx ) + jj*Nx ]
-    );
-  
-
-  Fy[ index ] = factor2*( 
-    +1.*phia[ ii + ((Ny+jj-2)%Ny)*Nx ] 
-    -8.*phia[ ii + ((Ny+jj-1)%Ny)*Nx ] 
-    +8.*phia[ ii + ((Ny+jj+1)%Ny)*Nx ] 
-    -1.*phia[ ii + ((Ny+jj+2)%Ny)*Nx ] 
-    );
-
-
-  return 0;
-
-}
-
-
-double _6th_order_diff_2d(int const Nx, int const Ny, double const phia[], 
-  double* Fx, double* Fy, double const dx, double const dy, int const ii, int const jj ) {
-
-  double factor1 = -1./(60.*dx);
-  double factor2 = -1./(60.*dy);
-  int index = ii + jj*Nx;
-
-  Fx[ index ] = factor1*( 
-    -1.* phia[ ( (Nx+ii-3)%Nx )*Nx + jj ]
-    +9.* phia[ ( (Nx+ii-2)%Nx )*Nx + jj ] 
-    -45.*phia[ ( (Nx+ii-1)%Nx )*Nx + jj ] 
-    +45.*phia[ ( (Nx+ii+1)%Nx )*Nx + jj ]
-    -9.* phia[ ( (Nx+ii+2)%Nx )*Nx + jj ]
-    +1.* phia[ ( (Nx+ii+3)%Nx )*Nx + jj ]
-    );
-  
-
-  Fy[ index ] = factor2*( 
-    -1.* phia[ ii + ((Ny+jj-3)%Ny)*Nx ] 
-    +9.* phia[ ii + ((Ny+jj-2)%Ny)*Nx ] 
-    -45.*phia[ ii + ((Ny+jj-1)%Ny)*Nx ] 
-    +45.*phia[ ii + ((Ny+jj+1)%Ny)*Nx ] 
-    -9.* phia[ ii + ((Ny+jj+2)%Ny)*Nx ] 
-    +1.* phia[ ii + ((Ny+jj+3)%Ny)*Nx ] 
-    );
-
-
-  return 0;
-
-}
