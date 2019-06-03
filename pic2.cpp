@@ -15,7 +15,7 @@
 
 using namespace std;
 
-void Weight(struct grid2D *grid, struct particle2D *particle,int type){
+void Weight2d(struct grid2D *grid, struct particle2D *particle,int type){
 	//type = 0/1/2  => NGP/CIC/TSC
 	for(int i=0;i < particle->number;i++){
 		int lx,ly,sx,sy;
@@ -85,7 +85,7 @@ void Weight(struct grid2D *grid, struct particle2D *particle,int type){
 		
 	}
 }
-void WeightForce(struct grid2D *grid,struct particle2D *particle,int type){
+void WeightForce2d(struct grid2D *grid,struct particle2D *particle,int type){
 	//type = 0/1/2  => NGP/CIC/TSC
 	for(int i=0;i < particle->number;i++){
 		int lx,ly,sx,sy;
