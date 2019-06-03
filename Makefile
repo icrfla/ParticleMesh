@@ -1,4 +1,6 @@
-SIZEOBJ = ParticleMesh.o Weighting2d.o poisson_solver_fft_force_2d.o PotentialToForce2d.o
+# SIZEOBJ = ParticleMesh3d.o pic3.o poisson_solver_fft_force_3d.o PotentialToForce3d.o
+SIZEOBJ = ParticleMesh2d.o pic2.o poisson_solver_fft_force_2d.o PotentialToForce2d.o
+
 
 CC=g++-9
 
