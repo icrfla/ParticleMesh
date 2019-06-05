@@ -34,6 +34,7 @@ struct grid2D{
 	double *Fy;
 };
 void Weight(struct grid2D *grid,struct particle2D *particle,int type){
+
 	//Initialize Density field
 	for(int i=0 ; i < grid->N ; i++){
 		grid->density[i]=0.0;
@@ -211,7 +212,7 @@ int main( int argc, char *argv[] ){
 	int weightFunction = 1;  	//0/1/2 : NGP/CIC/TSC
 	int orbitIntegrattion = 0;	//0/1/2 : KDK/DKD/RK4
 	int dim = 2;				
-	double L = 6.0;				//Length of box (from -L/2 ~ L/2)
+	double L = 10.0;				//Length of box (from -L/2 ~ L/2)
 	int Nx = 101;				//Number of grid in x direction. (should be odd number)
 	int NParticle=2;//Number of particles used in simulation
 	double massParticle=1.0;
@@ -257,7 +258,7 @@ int main( int argc, char *argv[] ){
 		}
 
 	//Initialize mass of particles
-		myParticle.mass[0]=3.0;
+		myParticle.mass[0]=2.0;
 		myParticle.mass[1]=1.0;
 	//Initialize Initial Position of Particle.
 		// for (int i = 0; i < myParticle.number; ++i){
@@ -269,80 +270,75 @@ int main( int argc, char *argv[] ){
 		myParticle.y[0] = 0.0;
 		myParticle.x[1] = -2.0;
 		myParticle.y[1] = 0.0;
-
-	//Initialize Initial velocity
-		myParticle.vx[0] = 0.0;
-		myParticle.vy[0] = sqrt(G*1.0*1.0)/3.0;
-		myParticle.vx[1] = 0.0;
-		myParticle.vy[1] = -sqrt(G*2.0*2.0)/3.0;
-
 	//Initialize Force field value
 		for(int i=0;i<grid.N;i++){
 			grid.Fx[i]=0.0;
 			grid.Fy[i]=0.0;		
 		}
-	//Test 
-		Weight(&grid,&myParticle,weightFunction);
-		
-		isolatedPotential(&grid);
 
+	Weight(&grid,&myParticle,weightFunction);
 		
-		//_fftw_2d_(dim, &grid);
+	isolatedPotential(&grid);				
 		
-		WeightForce(&grid,&myParticle,weightFunction);
+	WeightForce(&grid,&myParticle,weightFunction);
 
-		printf("%f\t%f\t%f\t%f\n",myParticle.Fx[0],myParticle.Fy[0],myParticle.Fx[1],myParticle.Fy[1]);
-		
-		
+	//Initialize Initial velocity
+		myParticle.vx[0] = 0.0;
+		myParticle.vy[0] = -sqrt(fabs(myParticle.Fx[0]*1.0)/myParticle.mass[0]);
+		myParticle.vx[1] = 0.0;
+		myParticle.vy[1] = sqrt(fabs(myParticle.Fx[1]*2.0)/myParticle.mass[1]);
+		printf("%f\t%f\n",myParticle.Fx[0],myParticle.Fx[1]);
+
+			
 
 	//Time evolution loop
-	// double t = 0.0;
-	// for(int st=0;st<1000;st++){
-	// 	//Deposit Particles to grid
-	// 	Weight(&grid,&myParticle,weightFunction);
+	double t = 0.0;
+	for(int st=0;st<1000;st++){
+		//Deposit Particles to grid
+		Weight(&grid,&myParticle,weightFunction);
 
-	// 	//Use Fourier Transform to calculate potential and force.
-	// 	//_fftw_2d_(dim, &grid);
-	// 	isolatedPotential(&grid);
+		//Use Fourier Transform to calculate potential and force.
+		//_fftw_2d_(dim, &grid);
+		isolatedPotential(&grid);
 
-	// 	//Remap the force to particle.
-	// 	WeightForce(&grid,&myParticle,weightFunction);
+		//Remap the force to particle.
+		WeightForce(&grid,&myParticle,weightFunction);
 
+		//Move particle
+		if(orbitIntegrattion == 0){
+			//KDK scheme
+			kick(&myParticle,dt/2);
+
+			drift(&myParticle,dt);
+			
+			
+			Weight(&grid,&myParticle,weightFunction);
+			isolatedPotential(&grid);
+			WeightForce(&grid,&myParticle,weightFunction);
+
+			kick(&myParticle,dt/2);
+		}else if(orbitIntegrattion == 1){
+			//DKD scheme
+			drift(&myParticle,dt/2);
+
+			Weight(&grid,&myParticle,weightFunction);
+			isolatedPotential(&grid);
+			WeightForce(&grid,&myParticle,weightFunction);
+
+			kick(&myParticle,dt);
+			drift(&myParticle,dt/2);
+		}else if(orbitIntegrattion == 2){
+			//RK4
+			//To-do
+		}
+
+		//print out the position of particle 1
+		if(st % 1 == 0){
+			fprintf(output,"%f\t%f\t",myParticle.x[0],myParticle.y[0]);
+			fprintf(output,"%f\t%f\n",myParticle.x[1],myParticle.y[1]);
+		}
 		
-
-	// 	//Move particle
-	// 	if(orbitIntegrattion == 0){
-	// 		//KDK scheme
-	// 		kick(&myParticle,dt/2);
-	// 		drift(&myParticle,dt);
-
-	// 		Weight(&grid,&myParticle,weightFunction);
-	// 		isolatedPotential(&grid);
-	// 		WeightForce(&grid,&myParticle,weightFunction);
-
-	// 		kick(&myParticle,dt/2);
-	// 	}else if(orbitIntegrattion == 1){
-	// 		//DKD scheme
-	// 		drift(&myParticle,dt/2);
-
-	// 		Weight(&grid,&myParticle,weightFunction);
-	// 		isolatedPotential(&grid);
-	// 		WeightForce(&grid,&myParticle,weightFunction);
-
-	// 		kick(&myParticle,dt);
-	// 		drift(&myParticle,dt/2);
-	// 	}else if(orbitIntegrattion == 2){
-	// 		//RK4
-	// 		//To-do
-	// 	}
-
-	// 	//print out the position of particle 1
-	// 	if(st % 1 == 0){
-	// 		fprintf(output,"%f\t%f\n",myParticle.x[0],myParticle.y[0]);
-	// 		//fprintf(output,"%f\t%f\t\n",myParticle.x[1],myParticle.y[1]);
-	// 	}
-		
-	// }
+	}
 
 	
 	
@@ -359,7 +355,7 @@ int main( int argc, char *argv[] ){
 	// 	for(int i=0;i<myParticle.number;i++){
 	// 		printf("(Fx,Fy)=(%.2f,%.2f)\n",myParticle.Fx[i],myParticle.Fy[i]);
 	// 	}
-
+	fclose(output);
 	return 0;
 }
 
@@ -454,6 +450,7 @@ void _2nd_order_diff_(struct grid2D *grid, int const ii, int const jj ) {
 }
 
 void isolatedPotential(struct grid2D *grid){
+	
 	double *densityPad,*greenFunction;
 	int N = grid->N;
 	int Nx = grid->Nx;
