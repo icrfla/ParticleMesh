@@ -11,22 +11,13 @@
 #include <complex.h>
 using namespace std;
 
-double force_3d(int const dim, int const Nx, int const Ny, int const Nz, 
+double _fftw_3d_(int const dim, int const Nx, int const Ny, int const Nz, 
   double const ori_sigma_a[], double* Fx, double *Fy, double *Fz, 
   double const dx, double const dy, double const dz);
 
-double _2nd_order_diff_3d(int const Nx, int const Ny, int const Nz, double const phia[], 
+double _2nd_order_diff_(int const Nx, int const Ny, int const Nz, double const phia[], 
   double* Fx, double* Fy, double *Fz, double const dx, double const dy, double const dz,
   int const ii, int const jj, int const kk );
-
-double _4th_order_diff_3d(int const Nx, int const Ny, int const Nz, double const phia[], 
-  double* Fx, double* Fy, double* Fz, double const dx, double const dy, double const dz, 
-  int const ii, int const jj, int const kk );
-
-double _6th_order_diff_3d(int const Nx, int const Ny, int const Nz, double const phia[], 
-  double* Fx, double* Fy, double* Fz, double const dx, double const dy, double const dz, 
-  int const ii, int const jj, int const kk );
-
 
 int main( int argc, char *argv[] ){
 
@@ -54,14 +45,34 @@ int main( int argc, char *argv[] ){
   double *Fy = (double *) malloc(Nx*Ny*Nz * sizeof(double));
   double *Fz = (double *) malloc(Nx*Ny*Nz * sizeof(double));
 
-  poisson_solver_3d(dim, Nx, Ny, Nz, sigma_a, Fx, Fy, Fz, dx, dy, dz);
+  _fftw_3d_(dim, Nx, Ny, Nz, sigma_a, Fx, Fy, Fz, dx, dy, dz);
 
   return 0;
 }
 
+double _2nd_order_diff_(int const Nx, int const Ny, int const Nz, double const phia[], 
+  double* Fx, double* Fy, double* Fz, double const dx, double const dy, double const dz, 
+  int const ii, int const jj, int const kk ) {
+
+  double factor1 = -1.*(1.+1.)/dx;
+  double factor2 = -1.*(1.+1.)/dy;
+  double factor3 = -1.*(1.+1.)/dz;
+
+  Fx[ ii*Nx + jj ] = factor1*( phia[ ( (Nx+ii+1)%Nx )*Ny*Nz + jj*Nz + kk ] 
+                             - phia[ ( (Nx+ii-1)%Nx )*Nx + jj*Nz + kk ] );
+  Fy[ ii*Nx + jj ] = factor2*( phia[ ii*Ny*Nz + ( (Ny+jj+1)%Ny )*Nz + kk ] 
+                             - phia[ ii*Ny*Nz + ( (Ny+jj-1)%Ny )*Nz + kk] );  
+  Fz[ ii*Nx + jj ] = factor3*( phia[ ii*Ny*Nz + jj*Nz + (Nz+kk+1)%Nz ] )
+                             - phia[ ii*Ny*Nz + jj*Nz + (Nz+kk-1)%Nz ];
 
 
-double poisson_solver_3d(int const dim, int const Nx, int const Ny, int const Nz, 
+  return 0;
+
+}
+
+
+
+double _fftw_3d_(int const dim, int const Nx, int const Ny, int const Nz, 
   double const ori_sigma_a[], double* Fx, double *Fy, double *Fz, 
   double const dx, double const dy, double const dz){
 
@@ -150,7 +161,7 @@ double poisson_solver_3d(int const dim, int const Nx, int const Ny, int const Nz
   for (ii=0; ii<Nx; ii+=1){
     for (jj=0; jj<Ny; jj+=1){
       for (kk=0; kk<Nz; kk+=1){
-        _2nd_order_diff_3d( Nx, Ny, Nz, phi_total, Fx, Fy, Fz, dx, dy, dz, ii, jj, kk );
+        _2nd_order_diff_( Nx, Ny, Nz, phi_total, Fx, Fy, Fz, dx, dy, dz, ii, jj, kk );
       }
     }
   }
@@ -160,94 +171,3 @@ double poisson_solver_3d(int const dim, int const Nx, int const Ny, int const Nz
   return 0;
 }
 
-double _2nd_order_diff_3d(int const Nx, int const Ny, int const Nz, double const phia[], 
-  double* Fx, double* Fy, double* Fz, double const dx, double const dy, double const dz, 
-  int const ii, int const jj, int const kk ) {
-
-  double factor1 = -1./(2.*dx);
-  double factor2 = -1./(2.*dy);
-  double factor3 = -1./(2.*dz);
-
-  Fx[ ii*Nx + jj ] = factor1*( phia[ ( (Nx+ii+1)%Nx )*Ny*Nz + jj*Nz + kk ] 
-                             - phia[ ( (Nx+ii-1)%Nx )*Ny*Nz + jj*Nz + kk ] );
-  Fy[ ii*Nx + jj ] = factor2*( phia[ ii*Ny*Nz + ( (Ny+jj+1)%Ny )*Nz + kk ] 
-                             - phia[ ii*Ny*Nz + ( (Ny+jj-1)%Ny )*Nz + kk] );  
-  Fz[ ii*Nx + jj ] = factor3*( phia[ ii*Ny*Nz + jj*Nz + (Nz+kk+1)%Nz ] )
-                             - phia[ ii*Ny*Nz + jj*Nz + (Nz+kk-1)%Nz ];
-
-
-  return 0;
-
-}
-
-double _4th_order_diff_3d(int const Nx, int const Ny, int const Nz, double const phia[], 
-  double* Fx, double* Fy, double* Fz, double const dx, double const dy, double const dz, 
-  int const ii, int const jj, int const kk ) {
-
-  double factor1 = -1.*(1.+1.)/dx;
-  double factor2 = -1.*(1.+1.)/dy;
-  double factor3 = -1.*(1.+1.)/dz;
-
-  Fx[ ii*Nx + jj ] = factor1*( 
-                      +1.*phia[ ( (Nx+ii-2)%Nx )*Ny*Nz + jj*Nz + kk ] 
-                      -8.*phia[ ( (Nx+ii-1)%Nx )*Ny*Nz + jj*Nz + kk ] 
-                      +8.*phia[ ( (Nx+ii+1)%Nx )*Ny*Nz + jj*Nz + kk ]
-                      -1.*phia[ ( (Nx+ii+2)%Nx )*Ny*Nz + jj*Nz + kk ]
-                             );
-  
-  Fy[ ii*Nx + jj ] = factor2*( 
-                      +1.*phia[ ii*Ny*Nz + ( (Ny+jj-2)%Ny )*Nz + kk ] 
-                      -8.*phia[ ii*Ny*Nz + ( (Ny+jj-1)%Ny )*Nz + kk ] 
-                      +8.*phia[ ii*Ny*Nz + ( (Ny+jj+1)%Ny )*Nz + kk ] 
-                      -1.*phia[ ii*Ny*Nz + ( (Ny+jj+2)%Ny )*Nz + kk ] 
-                             );
-  
-  Fz[ ii*Nx + jj ] = factor3*( 
-                      +1.*phia[ ii*Ny*Nz + jj*Nz + (Nz+kk-2)%Nz ] 
-                      -8.*phia[ ii*Ny*Nz + jj*Nz + (Nz+kk-1)%Nz ] 
-                      +8.*phia[ ii*Ny*Nz + jj*Nz + (Nz+kk+1)%Nz ] 
-                      -1.*phia[ ii*Ny*Nz + jj*Nz + (Nz+kk+2)%Nz ] 
-                             );
-
-  return 0;
-
-}
-
-double _6th_order_diff_3d(int const Nx, int const Ny, int const Nz, double const phia[], 
-  double* Fx, double* Fy, double* Fz, double const dx, double const dy, double const dz, 
-  int const ii, int const jj, int const kk ) {
-
-  double factor1 = -1.*(1.+1.)/dx;
-  double factor2 = -1.*(1.+1.)/dy;
-  double factor3 = -1.*(1.+1.)/dz;
-
-  Fx[ ii*Nx + jj ] = factor1*( 
-                      -1.*phia[ ( (Nx+ii-3)%Nx )*Ny*Nz + jj*Nz + kk ]
-                      +9.*phia[ ( (Nx+ii-2)%Nx )*Ny*Nz + jj*Nz + kk ] 
-                      -45.*phia[ ( (Nx+ii-1)%Nx )*Ny*Nz + jj*Nz + kk ] 
-                      +45.*phia[ ( (Nx+ii+1)%Nx )*Ny*Nz + jj*Nz + kk ]
-                      -9.*phia[ ( (Nx+ii+2)%Nx )*Ny*Nz + jj*Nz + kk ]
-                      +1.*phia[ ( (Nx+ii+3)%Nx )*Ny*Nz + jj*Nz + kk ]
-                             );
-  
-  Fy[ ii*Nx + jj ] = factor2*( 
-                      -1.*phia[ ii*Ny*Nz + ( (Ny+jj-3)%Ny )*Nz + kk ]
-                      +9.*phia[ ii*Ny*Nz + ( (Ny+jj-2)%Ny )*Nz + kk ] 
-                      -45.*phia[ ii*Ny*Nz + ( (Ny+jj-1)%Ny )*Nz + kk ] 
-                      +45.*phia[ ii*Ny*Nz + ( (Ny+jj+1)%Ny )*Nz + kk ] 
-                      -9.*phia[ ii*Ny*Nz + ( (Ny+jj+2)%Ny )*Nz + kk ] 
-                      +1.*phia[ ii*Ny*Nz + ( (Ny+jj+3)%Ny )*Nz + kk ] 
-                             );
-  
-  Fz[ ii*Nx + jj ] = factor3*( 
-                      -1.*phia[ ii*Ny*Nz + jj*Nz + (Nz+kk-3)%Nz ] 
-                      +9.*phia[ ii*Ny*Nz + jj*Nz + (Nz+kk-2)%Nz ] 
-                      -45.*phia[ ii*Ny*Nz + jj*Nz + (Nz+kk-1)%Nz ] 
-                      +45.*phia[ ii*Ny*Nz + jj*Nz + (Nz+kk+1)%Nz ] 
-                      -9.*phia[ ii*Ny*Nz + jj*Nz + (Nz+kk+2)%Nz ] 
-                      +1.*phia[ ii*Ny*Nz + jj*Nz + (Nz+kk+3)%Nz ] 
-                             );
-
-  return 0;
-
-}

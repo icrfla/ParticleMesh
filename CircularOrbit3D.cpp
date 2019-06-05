@@ -33,6 +33,18 @@ struct grid2D{
 	double *Fx;
 	double *Fy;
 };
+
+struct rk42D{
+        int step1;
+        int step2;
+        double *ax;
+        double *ay;
+	double *az;
+        double *vx;
+        double *vy;
+	double *vz;
+};
+
 void Weight(struct grid2D *grid,struct particle2D *particle,int type){
 	//Initialize Density field
 	for(int i=0 ; i < grid->N ; i++){
@@ -193,23 +205,81 @@ void kick(struct particle2D *particle , double dt){
 		//Cauculate the acceleration of each particle.
 		ax = particle->Fx[i] / particle->mass[i];
 		ay = particle->Fy[i] / particle->mass[i];
+		az = particle->Fz[i] / particle->mass[i];
 
 		//Calculate velocity of each particle.
 		particle->vx[i] += ax * dt;
 		particle->vy[i] += ay * dt;
+		particle->vz[i] += az * dt;
 	}
 }
 void drift(struct particle2D *particle , double dt){
 	for(int i=0 ; i<particle->number ; i++){
 		particle->x[i] += particle->vx[i] * dt;
 		particle->y[i] += particle->vy[i] * dt;
+		particle->z[i] += particle->vz[i] * dt;
 	}
+}
+void init_rk4(struct particle2D *particle, struct particle2D *buff, struct rk42D *rk4){
+        for(int i=0 ; i<particle->number ; i++){
+                buff->vx[i] = particle->vx[i];
+                buff->vy[i] = particle->vy[i];
+		buff->vz[i] = particle->vz[i];
+                rk4->ax[i] = 0;
+                rk4->ay[i] = 0;
+                rk4->az[i] = 0;
+		rk4->vx[i] = 0;
+                rk4->vy[i] = 0;
+		rk4->vz[i] = 0;
+                rk4->step1 = 0;
+                rk4->step2 = 1;
+        }
+}
+void rk4_mid(struct particle2D *particle, struct particle2D *buff, struct rk42D *rk4, double dt, int weighting){
+        for(int i=0 ; i<particle->number ; i++){
+                buff->Fx[i] = rk4->step1 * buff->Fx[i] + rk4->step2 * particle->Fx[i];
+                buff->Fy[i] = rk4->step1 * buff->Fy[i] + rk4->step2 * particle->Fy[i];
+                buff->Fz[i] = rk4->step1 * buff->Fz[i] + rk4->step2 * particle->Fz[i];
+
+                buff->x[i] = particle->x[i] + buff->vx[i] * dt;
+                buff->y[i] = particle->y[i] + buff->vy[i] * dt;
+                buff->z[i] = particle->z[i] + buff->vz[i] * dt;
+
+                rk4->ax[i] += weighting/6 * buff->Fx[i]/particle->mass[i];
+                rk4->ay[i] += weighting/6 * buff->Fy[i]/particle->mass[i];
+		rk4->az[i] += weighting/6 * buff->Fz[i]/particle->mass[i];
+		rk4->vx[i] += weighting/6 * buff->vx[i];
+                rk4->vy[i] += weighting/6 * buff->vy[i];
+		rk4->vz[i] += weighting/6 * buff->vz[i];
+
+                buff->vx[i] = particle->vx[i] + buff->Fx[i]/particle->mass[i] * dt;
+                buff->vy[i] = particle->vy[i] + buff->Fy[i]/particle->mass[i] * dt;
+                buff->vz[i] = particle->vz[i] + buff->Fz[i]/particle->mass[i] * dt;
+
+                rk4->step1 = 1;
+                rk4->step2 = 0;
+        }
+}
+void rk4_end(struct particle2D *particle, struct rk42D *rk4, double dt){
+        for(int i=0 ; i<particle->number ; i++){
+                particle->x[i]  += rk4->vx[i] * dt;
+                particle->y[i]  += rk4->vy[i] * dt;
+                particle->z[i]  += rk4->vz[i] * dt;
+                particle->vx[i] += rk4->ax[i] * dt;
+                particle->vy[i] += rk4->ay[i] * dt;
+                particle->vz[i] += rk4->az[i] * dt;
+        }
+}
+void periodic_boundary(double position, double length){
+        int sign = position/abs(position);
+        position = sign * remainder(abs(position + sign*length/2), length) - sign*length/2;
 }
 
 int main( int argc, char *argv[] ){
 	//================Simulation Constants
 	int weightFunction = 1;  	//0/1/2 : NGP/CIC/TSC
 	int orbitIntegrattion = 0;	//0/1/2 : KDK/DKD/RK4
+	int boundary = 0;               //0/1/2 : periodic/isolated/no boundary
 	int dim = 2;				
 	double L = 6.0;				//Length of box (from -L/2 ~ L/2)
 	int Nx = 101;				//Number of grid in x direction. (should be odd number)
@@ -250,7 +320,27 @@ int main( int argc, char *argv[] ){
 		myParticle.Fy = (double*)malloc(myParticle.number*sizeof(double));
 		myParticle.vx = (double*)malloc(myParticle.number*sizeof(double));
 		myParticle.vy = (double*)malloc(myParticle.number*sizeof(double));
-	
+        //================Initialize Particles Parameter (buffer)======
+                struct particle2D buffParticle;
+                buffParticle.number = NParticle;
+                buffParticle.mass = (double*)malloc(myParticle.number*sizeof(double));
+                buffParticle.x = (double*)malloc(myParticle.number*sizeof(double));
+                buffParticle.y = (double*)malloc(myParticle.number*sizeof(double));
+                buffParticle.z = (double*)malloc(myParticle.number*sizeof(double));
+		buffParticle.Fx = (double*)malloc(myParticle.number*sizeof(double));
+                buffParticle.Fy = (double*)malloc(myParticle.number*sizeof(double));
+                buffParticle.Fz = (double*)malloc(myParticle.number*sizeof(double));
+		buffParticle.vx = (double*)malloc(myParticle.number*sizeof(double));
+                buffParticle.vy = (double*)malloc(myParticle.number*sizeof(double));
+        	buffParticle.vz = (double*)malloc(myParticle.number*sizeof(double));
+	//================Initialize Runge-Kutta Coefficient======
+                struct rk42D myrk4;
+                myrk4.ax = (double*)malloc(myParticle.number*sizeof(double));
+                myrk4.ay = (double*)malloc(myParticle.number*sizeof(double));
+                myrk4.az = (double*)malloc(myParticle.number*sizeof(double));
+		myrk4.vx = (double*)malloc(myParticle.number*sizeof(double));
+                myrk4.vy = (double*)malloc(myParticle.number*sizeof(double));
+		myrk4.vz = (double*)malloc(myParticle.number*sizeof(double));	
 	//================Initialize density field=============
 		for(int i=0;i<grid.N;i++){
 			grid.density[i]=0.0;		
@@ -296,53 +386,107 @@ int main( int argc, char *argv[] ){
 		
 
 	//Time evolution loop
-	// double t = 0.0;
-	// for(int st=0;st<1000;st++){
-	// 	//Deposit Particles to grid
-	// 	Weight(&grid,&myParticle,weightFunction);
+	 double t = 0.0;
+	 for(int st=0;st<1000;st++){
+	 	//Deposit Particles to grid
+	 	Weight(&grid,&myParticle,weightFunction);
 
-	// 	//Use Fourier Transform to calculate potential and force.
-	// 	//_fftw_2d_(dim, &grid);
-	// 	isolatedPotential(&grid);
+	 	//Use Fourier Transform to calculate potential and force.
+	 	_fftw_2d_(dim, &grid);
+	 	isolatedPotential(&grid);
 
-	// 	//Remap the force to particle.
-	// 	WeightForce(&grid,&myParticle,weightFunction);
+ 	//Remap the force to particle.
+		WeightForce(&grid,&myParticle,weightFunction);
 
-		
+      
 
-	// 	//Move particle
-	// 	if(orbitIntegrattion == 0){
-	// 		//KDK scheme
-	// 		kick(&myParticle,dt/2);
-	// 		drift(&myParticle,dt);
+ 	//Move particle
+		if(orbitIntegrattion == 0){
+ 		//KDK scheme
+			kick(&myParticle,dt/2);
+ 			drift(&myParticle,dt);
 
-	// 		Weight(&grid,&myParticle,weightFunction);
-	// 		isolatedPotential(&grid);
-	// 		WeightForce(&grid,&myParticle,weightFunction);
+ 			Weight(&grid,&myParticle,weightFunction);
+ 			isolatedPotential(&grid);
+ 			WeightForce(&grid,&myParticle,weightFunction);
 
-	// 		kick(&myParticle,dt/2);
-	// 	}else if(orbitIntegrattion == 1){
-	// 		//DKD scheme
-	// 		drift(&myParticle,dt/2);
+ 			kick(&myParticle,dt/2);
+		}else if(orbitIntegrattion == 1){
+ 			//DKD scheme
+ 			drift(&myParticle,dt/2);
 
-	// 		Weight(&grid,&myParticle,weightFunction);
-	// 		isolatedPotential(&grid);
-	// 		WeightForce(&grid,&myParticle,weightFunction);
+ 			Weight(&grid,&myParticle,weightFunction);
+ 			isolatedPotential(&grid);
+ 			WeightForce(&grid,&myParticle,weightFunction);
 
-	// 		kick(&myParticle,dt);
-	// 		drift(&myParticle,dt/2);
-	// 	}else if(orbitIntegrattion == 2){
-	// 		//RK4
-	// 		//To-do
-	// 	}
+ 			kick(&myParticle,dt);
+ 			drift(&myParticle,dt/2);
+ 		}else if(orbitIntegrattion == 2){
+ 			//RK4
+                        init_rk4(&myParticle,&buffParticle,&myrk4);
 
-	// 	//print out the position of particle 1
-	// 	if(st % 1 == 0){
-	// 		fprintf(output,"%f\t%f\n",myParticle.x[0],myParticle.y[0]);
-	// 		//fprintf(output,"%f\t%f\t\n",myParticle.x[1],myParticle.y[1]);
-	// 	}
-		
-	// }
+                        rk4_mid(&myParticle,&buffParticle,&myrk4,dt/2,1);        //k1
+                        Weight(&grid,&buffParticle,weightFunction);
+                        _fftw_2d_(dim, &grid);
+                        WeightForce(&grid,&buffParticle,weightFunction);
+
+                        rk4_mid(&myParticle,&buffParticle,&myrk4,dt/2,2);        //k2
+                        Weight(&grid,&buffParticle,weightFunction);
+                        _fftw_2d_(dim, &grid);
+                        WeightForce(&grid,&buffParticle,weightFunction);
+
+                        rk4_mid(&myParticle,&buffParticle,&myrk4,dt,2);          //k3
+                        Weight(&grid,&buffParticle,weightFunction);
+                        _fftw_2d_(dim, &grid);
+                        WeightForce(&grid,&buffParticle,weightFunction);
+
+                        rk4_mid(&myParticle,&buffParticle,&myrk4,dt,1);          //k4
+
+                        rk4_end(&myParticle,&myrk4,dt);
+
+ 		}
+                //Boundary Condition
+                if (boundary == 0){
+                        for (int i=0; i<NParticle; i++){
+                                if ( abs(myParticle.x[i]) > L/2){
+                                        periodic_boundary(myParticle.x[i],L);
+                                }
+                                if ( abs(myParticle.y[i]) > L/2){
+                                        periodic_boundary(myParticle.y[i],L);
+                                }
+                                if ( abs(myParticle.z[i]) > L/2){
+                                        periodic_boundary(myParticle.z[i],L);
+                                }
+                        }
+                }
+                else if (boundary == 1){
+                        for (int i=0; i<NParticle; i++){
+                                if ( abs(myParticle.x[i]) > L/2 || abs(myParticle.y[i]) > L/2 || abs(myParticle.z[i]) > L/2){
+                                        myParticle.mass[i] = 0;
+                                }
+                        }
+                }
+
+                //Momentum      
+                double momentum_x = 0;
+                double momentum_y = 0;
+                double momentum_z = 0;
+
+                for (int i=0; i<NParticle; i++){
+                        momentum_x += myParticle.mass[i] * myParticle.vx[i];
+                        momentum_y += myParticle.mass[i] * myParticle.vy[i];
+                        momentum_z += myParticle.mass[i] * myParticle.vz[i];
+                }
+
+		cout << "(px , py,  pz ) = (" << momentum_x << ", " << momentum_y << ", " << momentum_z << ")" << endl;
+
+ 	//print out the position of particle 1
+ 	if(st % 1 == 0){
+ 		fprintf(output,"%f\t%f\n",myParticle.x[0],myParticle.y[0]);
+ 		//fprintf(output,"%f\t%f\t\n",myParticle.x[1],myParticle.y[1]);
+ 	}
+      
+ }
 
 	
 	
@@ -452,6 +596,118 @@ void _2nd_order_diff_(struct grid2D *grid, int const ii, int const jj ) {
 	grid->Fy[ ii * Nx + jj] = factor2*(grid->phi[ii * Nx + u] - grid->phi[ii * Nx + d] );  
 
 }
+
+void poisson_solver_fft_force_3d(int const dim, struct grid3D *grid);
+void poisson_solver_fft_force_3d(int const dim, struct grid3D *grid){
+
+  //double G_const = 6.67408e-8; // #g^-1 s^-2 cm^3 
+  double G_const = 1.0; // #g^-1 s^-2 cm^3
+  int const Nx = grid->Nx;
+  int const Ny = grid->Ny; 
+  int const Nz = grid->Nz;
+  int const total_n = Nx * Ny * Nz;
+  double dNx = (double) (Nx), dNy = (double) (Ny), dNz = (double) (Nz); // default Nx=Ny=Nz
+  int ii, jj, kk;
+
+  fftw_complex *sigma_a, *fftsigma_a;
+  fftw_complex *phika, *phia; 
+  fftw_plan p, q;
+
+  sigma_a = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * grid->N);
+  fftsigma_a = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * grid->N);
+  phika = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * grid->N);
+  phia = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * grid->N);
+
+  for (ii=0; ii < Nx; ii+=1) {
+    for (jj=0; jj < Ny; jj+=1) {
+      for (kk=0; kk < Nz; kk+=1){
+        index = ii*Ny*Nz + jj*Nz + zz;
+        sigma_a[ index ][0] = grid->density[ index ]; 
+        sigma_a[ index ][1] = 0.;
+      }
+    }
+  }
+
+
+  /////////// fft ///////////
+  p = fftw_plan_dft_3d(Nx, Ny, Nz, sigma_a, fftsigma_a, FFTW_FORWARD, FFTW_ESTIMATE);
+  fftw_execute(p);
+  fftw_destroy_plan(p);
+  double kxx, kyy, kzz;
+  for (ii=0; ii < Nx; ii+=1){
+    for (jj=0; jj < Ny; jj+=1){
+      for (kk=0; kk < Nz ; kk+=1){
+        if(ii != 0 || jj != 0){
+          index = ii*Ny*Nz + jj*Nz + zz;
+          kxx = pow((double)(ii)*2.*M_PI/grid->L, 2.);
+          kyy = pow((double)(jj)*2.*M_PI/grid->L, 2.);
+          kzz = pow((double)(kk)*2.*M_PI/grid->L, 2.);
+          phika[ index ][0] = -4. * M_PI * G_const * fftsigma_a[ index ][0] / ((kxx+kyy+kzz));
+          phika[ index ][1] = -4. * M_PI * G_const * fftsigma_a[ index ][1] / ((kxx+kyy+kzz));
+        }        
+      }
+    }
+  }
+  
+  /////////// inverse fft ///////////
+  q = fftw_plan_dft_2d(Nx, Ny, phika, phia, FFTW_BACKWARD, FFTW_ESTIMATE);
+  fftw_execute(q);
+  fftw_destroy_plan(q);
+  /////////// normalization ///////////
+  for (ii=0; ii < Nx; ii+=1){
+    for (jj=0; jj < Ny; jj+=1){
+      for (kk=0; kk < Nz; kk+=1){
+        index = ii*Ny*Nz + jj*Nz + zz;
+        phia[ index ][0] /= grid->N;
+        phia[ index ][1] /= grid->N;
+      }
+    }
+  }
+  
+  ////////// magnitude of potential //////////
+  for (ii=0; ii < Nx; ii+=1){
+    for (jj=0; jj < Ny; jj+=1){ 
+      for (kk=0; kk < Nz; kk+=1){
+        index = ii*Ny*Nz + jj*Nz + zz;
+        grid->phi[ index ] = -sqrt( pow(phia[ index ][0],2) + pow(phia[ index ][1],2) );        
+      }
+    }
+  }  
+
+  for (ii=0; ii < Nx; ii+=1){
+    for (jj=0; jj < Ny; jj+=1){
+      for (kk=0; kk < Nz ; kk+=1){
+        _2nd_order_diff_3d(grid, ii, jj, kk);        
+      }
+    }
+  }
+
+  fftw_cleanup();
+
+}
+
+void _2nd_order_diff_3d(struct grid3D *grid, int const ii, int const jj, int const kk );
+void _2nd_order_diff_3d(struct grid3D *grid, int const ii, int const jj, int const kk ) {
+
+  double factor1 = -1./(2.*grid->dx);
+  double factor2 = -1./(2.*grid->dy);
+  double factor3 = -1./(2.*grid->dz);
+  int const Nx = grid->Nx;
+  int const Ny = grid->Ny;
+  int const Nz = grid->Nz;
+  int index = ii*Ny*Nz + jj*Nz + zz;
+
+  grid->Fx[ index ] = factor1*( grid->phi[ ( (Nx+ii+1)%Nx ) + jj*Nx + kk*Nx*Ny ] 
+                              - grid->phi[ ( (Nx+ii-1)%Nx ) + jj*Nx + kk*Nx*Ny ] );
+
+  grid->Fy[ index ] = factor2*( grid->phi[ ii + ( (Ny+jj+1)%Ny )*Nx + kk*Nx*Ny ] 
+                              - grid->phi[ ii + ( (Ny+jj-1)%Ny )*Nx + kk*Nx*Ny ] );  
+
+  grid->Fz[ index ] = factor3*( grid->phi[ ii + jj*Nx + ((Nz+kk+1)%Nz)*Nx*Ny ] )
+                              - grid->phi[ ii + jj*Nx + ((Nz+kk-1)%Nz)*Nx*Ny ];
+
+}
+
 
 void isolatedPotential(struct grid2D *grid){
 	double *densityPad,*greenFunction;

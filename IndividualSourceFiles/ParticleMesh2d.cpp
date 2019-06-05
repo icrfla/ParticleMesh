@@ -73,7 +73,7 @@ int main( int argc, char *argv[] ){
     }
 
   //Deposit Particles to grid
-  Weight(&grid,&myParticle,weightFunction);
+  Weight2d(&grid,&myParticle,weightFunction);
   
   //Print out Density field
     for(int i=0;i<grid.N;i++){
@@ -88,7 +88,7 @@ int main( int argc, char *argv[] ){
   poisson_solver_fft_force_2d(dim, &grid);
 
   //Remap the force to particle.
-  WeightForce(&grid,&myParticle,weightFunction);
+  WeightForce2d(&grid,&myParticle,weightFunction);
 
   
   //Print out the force on a particle.
