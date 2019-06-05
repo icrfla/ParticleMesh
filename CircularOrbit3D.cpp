@@ -597,6 +597,118 @@ void _2nd_order_diff_(struct grid2D *grid, int const ii, int const jj ) {
 
 }
 
+void poisson_solver_fft_force_3d(int const dim, struct grid3D *grid);
+void poisson_solver_fft_force_3d(int const dim, struct grid3D *grid){
+
+  //double G_const = 6.67408e-8; // #g^-1 s^-2 cm^3 
+  double G_const = 1.0; // #g^-1 s^-2 cm^3
+  int const Nx = grid->Nx;
+  int const Ny = grid->Ny; 
+  int const Nz = grid->Nz;
+  int const total_n = Nx * Ny * Nz;
+  double dNx = (double) (Nx), dNy = (double) (Ny), dNz = (double) (Nz); // default Nx=Ny=Nz
+  int ii, jj, kk;
+
+  fftw_complex *sigma_a, *fftsigma_a;
+  fftw_complex *phika, *phia; 
+  fftw_plan p, q;
+
+  sigma_a = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * grid->N);
+  fftsigma_a = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * grid->N);
+  phika = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * grid->N);
+  phia = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * grid->N);
+
+  for (ii=0; ii < Nx; ii+=1) {
+    for (jj=0; jj < Ny; jj+=1) {
+      for (kk=0; kk < Nz; kk+=1){
+        index = ii*Ny*Nz + jj*Nz + zz;
+        sigma_a[ index ][0] = grid->density[ index ]; 
+        sigma_a[ index ][1] = 0.;
+      }
+    }
+  }
+
+
+  /////////// fft ///////////
+  p = fftw_plan_dft_3d(Nx, Ny, Nz, sigma_a, fftsigma_a, FFTW_FORWARD, FFTW_ESTIMATE);
+  fftw_execute(p);
+  fftw_destroy_plan(p);
+  double kxx, kyy, kzz;
+  for (ii=0; ii < Nx; ii+=1){
+    for (jj=0; jj < Ny; jj+=1){
+      for (kk=0; kk < Nz ; kk+=1){
+        if(ii != 0 || jj != 0){
+          index = ii*Ny*Nz + jj*Nz + zz;
+          kxx = pow((double)(ii)*2.*M_PI/grid->L, 2.);
+          kyy = pow((double)(jj)*2.*M_PI/grid->L, 2.);
+          kzz = pow((double)(kk)*2.*M_PI/grid->L, 2.);
+          phika[ index ][0] = -4. * M_PI * G_const * fftsigma_a[ index ][0] / ((kxx+kyy+kzz));
+          phika[ index ][1] = -4. * M_PI * G_const * fftsigma_a[ index ][1] / ((kxx+kyy+kzz));
+        }        
+      }
+    }
+  }
+  
+  /////////// inverse fft ///////////
+  q = fftw_plan_dft_2d(Nx, Ny, phika, phia, FFTW_BACKWARD, FFTW_ESTIMATE);
+  fftw_execute(q);
+  fftw_destroy_plan(q);
+  /////////// normalization ///////////
+  for (ii=0; ii < Nx; ii+=1){
+    for (jj=0; jj < Ny; jj+=1){
+      for (kk=0; kk < Nz; kk+=1){
+        index = ii*Ny*Nz + jj*Nz + zz;
+        phia[ index ][0] /= grid->N;
+        phia[ index ][1] /= grid->N;
+      }
+    }
+  }
+  
+  ////////// magnitude of potential //////////
+  for (ii=0; ii < Nx; ii+=1){
+    for (jj=0; jj < Ny; jj+=1){ 
+      for (kk=0; kk < Nz; kk+=1){
+        index = ii*Ny*Nz + jj*Nz + zz;
+        grid->phi[ index ] = -sqrt( pow(phia[ index ][0],2) + pow(phia[ index ][1],2) );        
+      }
+    }
+  }  
+
+  for (ii=0; ii < Nx; ii+=1){
+    for (jj=0; jj < Ny; jj+=1){
+      for (kk=0; kk < Nz ; kk+=1){
+        _2nd_order_diff_3d(grid, ii, jj, kk);        
+      }
+    }
+  }
+
+  fftw_cleanup();
+
+}
+
+void _2nd_order_diff_3d(struct grid3D *grid, int const ii, int const jj, int const kk );
+void _2nd_order_diff_3d(struct grid3D *grid, int const ii, int const jj, int const kk ) {
+
+  double factor1 = -1./(2.*grid->dx);
+  double factor2 = -1./(2.*grid->dy);
+  double factor3 = -1./(2.*grid->dz);
+  int const Nx = grid->Nx;
+  int const Ny = grid->Ny;
+  int const Nz = grid->Nz;
+  int index = ii*Ny*Nz + jj*Nz + zz;
+
+  grid->Fx[ index ] = factor1*( grid->phi[ ( (Nx+ii+1)%Nx ) + jj*Nx + kk*Nx*Ny ] 
+                              - grid->phi[ ( (Nx+ii-1)%Nx ) + jj*Nx + kk*Nx*Ny ] );
+
+  grid->Fy[ index ] = factor2*( grid->phi[ ii + ( (Ny+jj+1)%Ny )*Nx + kk*Nx*Ny ] 
+                              - grid->phi[ ii + ( (Ny+jj-1)%Ny )*Nx + kk*Nx*Ny ] );  
+
+  grid->Fz[ index ] = factor3*( grid->phi[ ii + jj*Nx + ((Nz+kk+1)%Nz)*Nx*Ny ] )
+                              - grid->phi[ ii + jj*Nx + ((Nz+kk-1)%Nz)*Nx*Ny ];
+
+}
+
+
 void isolatedPotential(struct grid2D *grid){
 	double *densityPad,*greenFunction;
 	int N = grid->N;
