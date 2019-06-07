@@ -127,7 +127,7 @@ void freeMemoryGrid(struct grid3D *grid);
 int main( int argc, char *argv[] ){
 	//================Simulation Constants
 	int weightFunction = 2;  	//0/1/2 : NGP/CIC/TSC
-	int orbitIntegration = 0;	//0/1/2 : KDK/DKD/RK4
+	int orbitIntegration = 1;	//0/1/2 : KDK/DKD/RK4
 	int poissonSolver = 0;		//0/1   : fft/isolated
 	int boundary = 2;           	//0/1/2 : periodic/isolated/no boundary
 	int dim = 3;				
@@ -213,8 +213,10 @@ int main( int argc, char *argv[] ){
 		
 
 		Weight(&grid,&myParticle,weightFunction);
-		poisson_solver_fft_force_3d(dim, &grid);
-		// isolatedPotential(&grid,fftgf);
+    if ( poissonSolver == 0 )
+      poisson_solver_fft_force_3d(dim, &grid);
+    else if ( poissonSolver == 1 )
+      isolatedPotential(&grid,fftgf);
 		
 		WeightForce(&grid,&myParticle,weightFunction);
 
@@ -268,8 +270,10 @@ int main( int argc, char *argv[] ){
 	 	Weight(&grid,&myParticle,weightFunction);
 
 	 	//Use Fourier Transform to calculate potential and force.
-	 	poisson_solver_fft_force_3d(dim, &grid);
-	 	// isolatedPotential(&grid,fftgf);
+    if ( poissonSolver == 0 )
+      poisson_solver_fft_force_3d(dim, &grid);
+    else if ( poissonSolver == 1 )
+      isolatedPotential(&grid,fftgf);
 
  		//Remap the force to particle.
 		WeightForce(&grid,&myParticle,weightFunction);
