@@ -209,11 +209,11 @@ void drift(struct particle2D *particle , double dt){
 
 int main( int argc, char *argv[] ){
 	//================Simulation Constants
-	int weightFunction = 1;  	//0/1/2 : NGP/CIC/TSC
+	int weightFunction = 0;  	//0/1/2 : NGP/CIC/TSC
 	int orbitIntegrattion = 0;	//0/1/2 : KDK/DKD/RK4
 	int dim = 2;				
 	double L = 10.0;				//Length of box (from -L/2 ~ L/2)
-	int Nx = 101;				//Number of grid in x direction. (should be odd number)
+	int Nx = 20;				//Number of grid in x direction. (should be odd number)
 	int NParticle=2;//Number of particles used in simulation
 	double massParticle=1.0;
 	double dt = 1.0e-2;
@@ -258,7 +258,7 @@ int main( int argc, char *argv[] ){
 		}
 
 	//Initialize mass of particles
-		myParticle.mass[0]=2.0;
+		myParticle.mass[0]=1.0;
 		myParticle.mass[1]=1.0;
 	//Initialize Initial Position of Particle.
 		// for (int i = 0; i < myParticle.number; ++i){
@@ -277,8 +277,9 @@ int main( int argc, char *argv[] ){
 		}
 
 	Weight(&grid,&myParticle,weightFunction);
-		
-	isolatedPotential(&grid);				
+	
+	_fftw_2d_(dim, &grid);
+	// isolatedPotential(&grid);				
 		
 	WeightForce(&grid,&myParticle,weightFunction);
 
@@ -287,19 +288,48 @@ int main( int argc, char *argv[] ){
 		myParticle.vy[0] = -sqrt(fabs(myParticle.Fx[0]*1.0)/myParticle.mass[0]);
 		myParticle.vx[1] = 0.0;
 		myParticle.vy[1] = sqrt(fabs(myParticle.Fx[1]*2.0)/myParticle.mass[1]);
-		printf("%f\t%f\n",myParticle.Fx[0],myParticle.Fx[1]);
+		printf("(Fx1, Fx2) = %f\t%f\n",myParticle.Fx[0],myParticle.Fx[1] );
+		printf("(Fy1, Fy2) = %f\t%f\n",myParticle.Fy[0],myParticle.Fy[1] );
+		printf("(Vy1, Vy2) = %f\t%f\n",myParticle.vy[0],myParticle.vy[1] );
+		double momentum_x = 0;
+		double momentum_y = 0;
 
+		for (int i=0; i<NParticle; i++){
+			momentum_x += myParticle.mass[i] * myParticle.vx[i];
+			momentum_y += myParticle.mass[i] * myParticle.vy[i];
+		}
+		cout << "(px , py) = (" << momentum_x << ", " << momentum_y << ")" << endl;
+		cout << endl << endl;
+
+	//Print out Density field
+		for(int i=0;i<grid.N;i++){
+			if(i % grid.Nx == 0){
+				printf("\n");
+			}
+			printf("%.2f\t",grid.density[i]);
+		}
+		printf("\n");
+
+	//Print out Density field
+		for(int i=0;i<grid.N;i++){
+			if(i % grid.Nx == 0){
+				printf("\n");
+			}
+			printf("%.2f\t",grid.phi[i]);
+		}
+		printf("\n");
 			
 
 	//Time evolution loop
 	double t = 0.0;
-	for(int st=0;st<1000;st++){
+	for(int st=0;st<1;st++){
 		//Deposit Particles to grid
 		Weight(&grid,&myParticle,weightFunction);
 
+		printf("st:%d\n", st);
 		//Use Fourier Transform to calculate potential and force.
-		//_fftw_2d_(dim, &grid);
-		isolatedPotential(&grid);
+		_fftw_2d_(dim, &grid);
+		// isolatedPotential(&grid);
 
 		//Remap the force to particle.
 		WeightForce(&grid,&myParticle,weightFunction);
@@ -313,7 +343,8 @@ int main( int argc, char *argv[] ){
 			
 			
 			Weight(&grid,&myParticle,weightFunction);
-			isolatedPotential(&grid);
+			// isolatedPotential(&grid);
+			_fftw_2d_(dim, &grid);
 			WeightForce(&grid,&myParticle,weightFunction);
 
 			kick(&myParticle,dt/2);
@@ -322,7 +353,8 @@ int main( int argc, char *argv[] ){
 			drift(&myParticle,dt/2);
 
 			Weight(&grid,&myParticle,weightFunction);
-			isolatedPotential(&grid);
+			// isolatedPotential(&grid);
+			_fftw_2d_(dim, &grid);
 			WeightForce(&grid,&myParticle,weightFunction);
 
 			kick(&myParticle,dt);
@@ -332,10 +364,28 @@ int main( int argc, char *argv[] ){
 			//To-do
 		}
 
+		double momentum_x = 0;
+		double momentum_y = 0;
+
+		for (int i=0; i<NParticle; i++){
+			momentum_x += myParticle.mass[i] * myParticle.vx[i];
+			momentum_y += myParticle.mass[i] * myParticle.vy[i];
+		}
+		cout << "(px , py) = (" << momentum_x << ", " << momentum_y << ")" << endl;
+
 		//print out the position of particle 1
 		if(st % 1 == 0){
-			fprintf(output,"%f\t%f\t",myParticle.x[0],myParticle.y[0]);
-			fprintf(output,"%f\t%f\n",myParticle.x[1],myParticle.y[1]);
+			fprintf(output,"%.2e\t%.2e\t",myParticle.x[0],myParticle.y[0]);
+			fprintf(output,"%.2e\t%.2e\n",myParticle.x[1],myParticle.y[1]);
+      printf("(Fx,Fy)=(%.2e,%.2e) (ax, ay)=(%.2e,%.2e)\n",myParticle.Fx[0],myParticle.Fy[0]
+        ,myParticle.Fx[0]/myParticle.mass[0],myParticle.Fy[0]/myParticle.mass[0]);
+      printf("(Fx,Fy)=(%.2e,%.2e) (ax, ay)=(%.2e,%.2e)\n",myParticle.Fx[1],myParticle.Fy[1]
+        ,myParticle.Fx[1]/myParticle.mass[1],myParticle.Fy[1]/myParticle.mass[1]);
+		}
+
+		//Print out the force on a particle.
+		for(int i=0;i<myParticle.number;i++){
+			printf("(Fx,Fy)=(%.2e,%.2e)\n",myParticle.Fx[i],myParticle.Fy[i]);
 		}
 		
 	}
@@ -347,14 +397,11 @@ int main( int argc, char *argv[] ){
 	// 		if(i % grid.Nx == 0){
 	// 			printf("\n");
 	// 		}
-	// 		printf("%.2f\t",grid.density[i]);
+	// 		printf("%f\t",grid.phi[i]);
 	// 	}
 	// 	printf("\n");
 
-	// //Print out the force on a particle.
-	// 	for(int i=0;i<myParticle.number;i++){
-	// 		printf("(Fx,Fy)=(%.2f,%.2f)\n",myParticle.Fx[i],myParticle.Fy[i]);
-	// 	}
+
 	fclose(output);
 	return 0;
 }
@@ -363,72 +410,80 @@ void _fftw_2d_(int const dim, struct grid2D *grid) {
 
   //double G_const = 6.67408e-8; // #g^-1 s^-2 cm^3 
 	double G_const = 1.0; // #g^-1 s^-2 cm^3
-	int Nx = grid->Nx;
-	int Ny = grid->Ny; 
+	int const Nx = grid->Nx;
+	int const Ny = grid->Ny; 
 	int total_n = Nx * Ny;
+	int const Nyh = Ny/2+1;
 	double dNx = (double) (Nx), dNy = (double) (Ny); // default Nx=Ny
 	int ii, jj;
 
-	fftw_complex *sigma_a, *fftsigma_a;
-	fftw_complex *phika, *phia; 
-	fftw_plan p, q;
+  fftw_complex *fftsigma_a;
+  double *sigma_a, *phia; 
+  fftw_plan p, q;
 
-	sigma_a = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * grid->N);
-	fftsigma_a = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * grid->N);
-	phika = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * grid->N);
-	phia = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * grid->N);
+  sigma_a = (double*) malloc( sizeof(double) * Nx*Ny );
+  fftsigma_a = (fftw_complex*) fftw_malloc( sizeof(fftw_complex) * Nx*Nyh );
+  phia = (double*) malloc(sizeof(double) * Nx*Ny );
 
 	for (ii=0; ii < Nx; ii+=1) {
 		for (jj=0; jj < Ny; jj+=1) {
-		  sigma_a[ ii * Nx + jj][0] = grid->density[ ii * Nx + jj]; 
-		  sigma_a[ ii * Nx + jj][1] = 0.;
+		  sigma_a[ ii * Nx + jj ] = grid->density[ ii * Nx + jj ]; 
+		  phia   [ ii * Ny + jj ] = 0.;
 		}
 	}
 
+	for (ii=0; ii < Nx; ii+=1) {
+		for (jj=0; jj < Nyh; jj+=1) {
+		  fftsigma_a[ ii * Nyh + jj][0] = 0.; 
+		  fftsigma_a[ ii * Nyh + jj][1] = 0.;
+		}
+	}
 
+	p = fftw_plan_dft_r2c_2d(Nx, Ny, sigma_a, fftsigma_a, FFTW_ESTIMATE);
+	q = fftw_plan_dft_c2r_2d(Nx, Ny, fftsigma_a, phia, FFTW_ESTIMATE);
 	/////////// fft ///////////
-	p = fftw_plan_dft_2d(Nx, Ny, sigma_a, fftsigma_a, FFTW_FORWARD, FFTW_ESTIMATE);
 	fftw_execute(p);
-	fftw_destroy_plan(p);
-	double kxx, kyy;
-	for (ii=0; ii < Nx; ii+=1){
-		for (jj=0; jj < Ny; jj+=1){
-			if(ii != 0 || jj != 0){
-				kxx = pow((double)(ii)*2.*M_PI/grid->L, 2.);
-				kyy = pow((double)(jj)*2.*M_PI/grid->L, 2.);
-				phika[ii * Nx + jj][0] = -4. * M_PI * G_const * fftsigma_a[ii * Nx + jj][0] / ((kxx+kyy));
-				phika[ii * Nx + jj][1] = -4. * M_PI * G_const * fftsigma_a[ii * Nx + jj][1] / ((kxx+kyy));
-			}
-			
-		}
-	}
 	
+	double kxx, kyy;
+  int fi, fj, fk, index;
+  for (ii=0; ii < Nx; ii+=1){
+    if (2*ii < Nx) {fi = ii;}
+    else {fi = Nx-ii;}
+    kxx = pow((double)(fi)*2.*M_PI/grid->L, 2.);
+    for (jj=0; jj < Nyh; jj+=1){
+    	kyy = pow((double)(jj)*2.*M_PI/grid->L, 2.);
+      if(ii != 0 || jj != 0){
+        index = ii*Nyh + jj;
+        fftsigma_a[ index ][0] *= ( -4. * M_PI * G_const / ((kxx+kyy)) );
+        fftsigma_a[ index ][1] *= ( -4. * M_PI * G_const / ((kxx+kyy)) );
+      }
+    }
+  }
+
 	/////////// inverse fft ///////////
-	q = fftw_plan_dft_2d(Nx, Ny, phika, phia, FFTW_BACKWARD, FFTW_ESTIMATE);
 	fftw_execute(q);
-	fftw_destroy_plan(q);
+
 	/////////// normalization ///////////
 	for (ii=0; ii < Nx; ii+=1){
 		for (jj=0; jj < Ny; jj+=1){
-		  phia[ii * Nx + jj][0] /= grid->N;
-		  phia[ii * Nx + jj][1] /= grid->N;
+		  grid->phi[ii * Nx + jj] = -1.*phia[ii*Nx+jj] / grid->N;
 		}
 	}
 	
-	////////// magnitude of potential //////////
-	for (ii=0; ii < Nx; ii+=1){
-		for (jj=0; jj < Ny; jj+=1){ 
-		  grid->phi[ii * Nx + jj] = -sqrt( pow(phia[ii * Nx + jj][0],2) + pow(phia[ii * Nx + jj][1],2) );
-		}
-	}  
-
 	for (ii=0; ii < Nx; ii+=1){
 		for (jj=0; jj < Ny; jj+=1){     
 		  _2nd_order_diff_(grid, ii, jj);
 		}
 	}
 
+	
+	fftw_destroy_plan(p);
+	fftw_destroy_plan(q);
 	fftw_cleanup();
+
+  free(sigma_a);
+  free(phia);
+  fftw_free(fftsigma_a);
 }
 
 void _2nd_order_diff_(struct grid2D *grid, int const ii, int const jj ) {
