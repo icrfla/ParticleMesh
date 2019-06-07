@@ -213,7 +213,7 @@ int main( int argc, char *argv[] ){
 	int orbitIntegrattion = 0;	//0/1/2 : KDK/DKD/RK4
 	int dim = 2;				
 	double L = 10.0;				//Length of box (from -L/2 ~ L/2)
-	int Nx = 51;				//Number of grid in x direction. (should be odd number)
+	int Nx = 20;				//Number of grid in x direction. (should be odd number)
 	int NParticle=2;//Number of particles used in simulation
 	double massParticle=1.0;
 	double dt = 1.0e-2;
@@ -288,15 +288,25 @@ int main( int argc, char *argv[] ){
 		myParticle.vy[0] = -sqrt(fabs(myParticle.Fx[0]*1.0)/myParticle.mass[0]);
 		myParticle.vx[1] = 0.0;
 		myParticle.vy[1] = sqrt(fabs(myParticle.Fx[1]*2.0)/myParticle.mass[1]);
-		printf("%f\t%f\n",myParticle.Fx[0],myParticle.Fx[1]);
-		printf("%f\t%f\n",myParticle.Fy[0],myParticle.Fy[1]);
+		printf("(Fx1, Fx2) = %f\t%f\n",myParticle.Fx[0],myParticle.Fx[1] );
+		printf("(Fy1, Fy2) = %f\t%f\n",myParticle.Fy[0],myParticle.Fy[1] );
+		printf("(Vy1, Vy2) = %f\t%f\n",myParticle.vy[0],myParticle.vy[1] );
+		double momentum_x = 0;
+		double momentum_y = 0;
+
+		for (int i=0; i<NParticle; i++){
+			momentum_x += myParticle.mass[i] * myParticle.vx[i];
+			momentum_y += myParticle.mass[i] * myParticle.vy[i];
+		}
+		cout << "(px , py) = (" << momentum_x << ", " << momentum_y << ")" << endl;
+		cout << endl << endl;
 
 	//Print out Density field
 		for(int i=0;i<grid.N;i++){
 			if(i % grid.Nx == 0){
 				printf("\n");
 			}
-			printf("%f\t",grid.density[i]);
+			printf("%.2f\t",grid.density[i]);
 		}
 		printf("\n");
 
@@ -305,7 +315,7 @@ int main( int argc, char *argv[] ){
 			if(i % grid.Nx == 0){
 				printf("\n");
 			}
-			printf("%f\t",grid.phi[i]);
+			printf("%.2f\t",grid.phi[i]);
 		}
 		printf("\n");
 			
@@ -354,10 +364,23 @@ int main( int argc, char *argv[] ){
 			//To-do
 		}
 
+		double momentum_x = 0;
+		double momentum_y = 0;
+
+		for (int i=0; i<NParticle; i++){
+			momentum_x += myParticle.mass[i] * myParticle.vx[i];
+			momentum_y += myParticle.mass[i] * myParticle.vy[i];
+		}
+		cout << "(px , py) = (" << momentum_x << ", " << momentum_y << ")" << endl;
+
 		//print out the position of particle 1
 		if(st % 1 == 0){
 			fprintf(output,"%.2e\t%.2e\t",myParticle.x[0],myParticle.y[0]);
 			fprintf(output,"%.2e\t%.2e\n",myParticle.x[1],myParticle.y[1]);
+      printf("(Fx,Fy)=(%.2e,%.2e) (ax, ay)=(%.2e,%.2e)\n",myParticle.Fx[0],myParticle.Fy[0]
+        ,myParticle.Fx[0]/myParticle.mass[0],myParticle.Fy[0]/myParticle.mass[0]);
+      printf("(Fx,Fy)=(%.2e,%.2e) (ax, ay)=(%.2e,%.2e)\n",myParticle.Fx[1],myParticle.Fy[1]
+        ,myParticle.Fx[1]/myParticle.mass[1],myParticle.Fy[1]/myParticle.mass[1]);
 		}
 
 		//Print out the force on a particle.
@@ -404,16 +427,15 @@ void _fftw_2d_(int const dim, struct grid2D *grid) {
 
 	for (ii=0; ii < Nx; ii+=1) {
 		for (jj=0; jj < Ny; jj+=1) {
-		  sigma_a[ ii * Nx + jj] = grid->density[ ii * Nx + jj]; 
-		  // sigma_a[ ii * Nx + jj][1] = 0.;
-		  phia[ ii * Ny + jj ] = 0.;
+		  sigma_a[ ii * Nx + jj ] = grid->density[ ii * Nx + jj ]; 
+		  phia   [ ii * Ny + jj ] = 0.;
 		}
 	}
 
 	for (ii=0; ii < Nx; ii+=1) {
-		for (jj=0; jj < Ny/2+1; jj+=1) {
-		  fftsigma_a[ ii * (Ny/2+1) + jj][0] = 0.; 
-		  fftsigma_a[ ii * (Ny/2+1) + jj][1] = 0.;
+		for (jj=0; jj < Nyh; jj+=1) {
+		  fftsigma_a[ ii * Nyh + jj][0] = 0.; 
+		  fftsigma_a[ ii * Nyh + jj][1] = 0.;
 		}
 	}
 

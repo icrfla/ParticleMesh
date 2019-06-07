@@ -127,7 +127,7 @@ void freeMemoryGrid(struct grid3D *grid);
 int main( int argc, char *argv[] ){
 	//================Simulation Constants
 	int weightFunction = 2;  	//0/1/2 : NGP/CIC/TSC
-	int orbitIntegration = 1;	//0/1/2 : KDK/DKD/RK4
+	int orbitIntegration = 0;	//0/1/2 : KDK/DKD/RK4
 	int poissonSolver = 0;		//0/1   : fft/isolated
 	int boundary = 2;           	//0/1/2 : periodic/isolated/no boundary
 	int dim = 3;				
@@ -191,6 +191,8 @@ int main( int argc, char *argv[] ){
 	//Initialize mass of particles
 		myParticle.mass[0]=4.0;
 		myParticle.mass[1]=1.0;
+    double scale = myParticle.mass[0] + myParticle.mass[1];
+    double rp = 1.0*scale; // distance between particles, same unit with L
 
 		if(orbitIntegration == 2){
 			buffParticle.mass[0] = myParticle.mass[0];
@@ -202,10 +204,10 @@ int main( int argc, char *argv[] ){
 		// 	myParticle.y[i]=gsl_rng_uniform(rng) * grid.L - grid.L/2;
 		// 	printf("At (%f,%f) \n",myParticle.x[i],myParticle.y[i]);
 		// }
-		myParticle.x[0] = 1.0;
+		myParticle.x[0] = rp * myParticle.mass[1] / scale;
 		myParticle.y[0] = 0.0;
 		myParticle.z[0] = 0.0;
-		myParticle.x[1] = -2.0;
+		myParticle.x[1] = -1. * rp * myParticle.mass[0] / scale;
 		myParticle.y[1] = 0.0;
 		myParticle.z[1] = 0.0;
 		
@@ -218,10 +220,10 @@ int main( int argc, char *argv[] ){
 
 	//Initialize Initial velocity
 		myParticle.vx[0] = 0.0;
-		myParticle.vy[0] = -sqrt(fabs(myParticle.Fx[0]*1.0)/myParticle.mass[0]);
+		myParticle.vy[0] = -sqrt(fabs(myParticle.Fx[0]*myParticle.mass[1])/myParticle.mass[0]);
 		myParticle.vz[0] = 0.0;
 		myParticle.vx[1] = 0.0;
-		myParticle.vy[1] = sqrt(fabs(myParticle.Fx[1]*2.0)/myParticle.mass[1]);
+		myParticle.vy[1] = sqrt(fabs(myParticle.Fx[1]*myParticle.mass[0])/myParticle.mass[1]);
 		//myParticle.vy[1] = 20;
 		myParticle.vz[1] = 0.0;
 
@@ -233,14 +235,35 @@ int main( int argc, char *argv[] ){
 	//Test 
 		
 
-		// printf("%f\t%f\t%f\n",myParticle.Fx[0],myParticle.Fy[0],myParticle.Fz[0]);
-		// printf("%f\t%f\t%f\n",myParticle.Fx[1],myParticle.Fy[1],myParticle.Fz[1]);
-		
+	// printf("%f\t%f\t%f\n",myParticle.Fx[0],myParticle.Fy[0],myParticle.Fz[0]);
+	// printf("%f\t%f\t%f\n",myParticle.Fx[1],myParticle.Fy[1],myParticle.Fz[1]);
+  double momentum_x = 0;
+  double momentum_y = 0;
+  double momentum_z = 0;
+
+  for (int i=0; i<NParticle; i++){
+    momentum_x += myParticle.mass[i] * myParticle.vx[i];
+    momentum_y += myParticle.mass[i] * myParticle.vy[i];
+    momentum_z += myParticle.mass[i] * myParticle.vz[i];
+  }
+  cout << "(px , py,  pz) = (" << momentum_x << ", " << momentum_y << ", " << momentum_z << ")" << endl;
+
+  //print out the position of particle 1
+  {
+    fprintf(output,"%f\t%f\t",myParticle.x[0],myParticle.y[0]);
+    fprintf(output,"%f\t%f\n",myParticle.x[1],myParticle.y[1]);
+    printf("(Fx,Fy)=(%.4e\t,%4e) (ax, ay)=(%.4e,%.4e)\n",myParticle.Fx[0],myParticle.Fy[0]
+      ,myParticle.Fx[0]/myParticle.mass[0],myParticle.Fy[0]/myParticle.mass[0]);
+    printf("(Fx,Fy)=(%.4e\t,%4e) (ax, ay)=(%.4e,%.4e)\n",myParticle.Fx[1],myParticle.Fy[1]
+      ,myParticle.Fx[1]/myParticle.mass[1],myParticle.Fy[1]/myParticle.mass[1]);
+    printf("(V1x,V1y)=(%.4e\t,%.4e) (V2x, V2y)=(%.4e\t,%.4e)\n",myParticle.vx[0],myParticle.vy[0]
+      ,myParticle.vx[1],myParticle.vy[1]);
+  }		
 		
 
 	//Time evolution loop
 	double t = 0.0;
-	for(int st=0;st<100;st++){
+	for(int st=0;st<1000;st++){
 	 	//Deposit Particles to grid
 	 	Weight(&grid,&myParticle,weightFunction);
 
@@ -260,8 +283,10 @@ int main( int argc, char *argv[] ){
  			drift(&myParticle,dt);
 
  			Weight(&grid,&myParticle,weightFunction);
-      poisson_solver_fft_force_3d(dim, &grid);
- 			// isolatedPotential(&grid,fftgf);
+      if ( poissonSolver == 0 )
+        poisson_solver_fft_force_3d(dim, &grid);
+ 	  	else if ( poissonSolver == 1 )
+        isolatedPotential(&grid,fftgf);
  			WeightForce(&grid,&myParticle,weightFunction);
 
  			kick(&myParticle,dt/2);
@@ -271,8 +296,10 @@ int main( int argc, char *argv[] ){
  			drift(&myParticle,dt/2);
 
  			Weight(&grid,&myParticle,weightFunction);
-      poisson_solver_fft_force_3d(dim, &grid);
- 			// isolatedPotential(&grid,fftgf);
+      if ( poissonSolver == 0 )
+        poisson_solver_fft_force_3d(dim, &grid);
+      else if ( poissonSolver == 1 )
+        isolatedPotential(&grid,fftgf);
  			WeightForce(&grid,&myParticle,weightFunction);
 
  			kick(&myParticle,dt);
@@ -284,20 +311,26 @@ int main( int argc, char *argv[] ){
 			
 			rk4_mid(&myParticle,&buffParticle,&myrk4,dt/2,1);        //k1
 			Weight(&grid,&buffParticle,weightFunction);
-			poisson_solver_fft_force_3d(dim, &grid);
-			// isolatedPotential(&grid,fftgf);
+      if ( poissonSolver == 0 )
+        poisson_solver_fft_force_3d(dim, &grid);
+      else if ( poissonSolver == 1 )
+        isolatedPotential(&grid,fftgf);
 			WeightForce(&grid,&buffParticle,weightFunction);
 			
 			rk4_mid(&myParticle,&buffParticle,&myrk4,dt/2,2);        //k2
 			Weight(&grid,&buffParticle,weightFunction);
-			poisson_solver_fft_force_3d(dim, &grid);
-			// isolatedPotential(&grid,fftgf);
+      if ( poissonSolver == 0 )
+        poisson_solver_fft_force_3d(dim, &grid);
+      else if ( poissonSolver == 1 )
+        isolatedPotential(&grid,fftgf);
 			WeightForce(&grid,&buffParticle,weightFunction);
 			
 			rk4_mid(&myParticle,&buffParticle,&myrk4,dt,2);          //k3
 			Weight(&grid,&buffParticle,weightFunction);
-			poisson_solver_fft_force_3d(dim, &grid);
-			// isolatedPotential(&grid,fftgf);
+      if ( poissonSolver == 0 )
+        poisson_solver_fft_force_3d(dim, &grid);
+      else if ( poissonSolver == 1 )
+        isolatedPotential(&grid,fftgf);
 			WeightForce(&grid,&buffParticle,weightFunction);
 			
 			rk4_mid(&myParticle,&buffParticle,&myrk4,dt,1);          //k4
@@ -327,31 +360,33 @@ int main( int argc, char *argv[] ){
 			}
 		}
 	}
-
-        //Momentum      
-	double momentum_x = 0;
-	double momentum_y = 0;
-	double momentum_z = 0;
-
-	for (int i=0; i<NParticle; i++){
-		momentum_x += myParticle.mass[i] * myParticle.vx[i];
-		momentum_y += myParticle.mass[i] * myParticle.vy[i];
-		momentum_z += myParticle.mass[i] * myParticle.vz[i];
-	}
-	cout << "(px , py,  pz) = (" << momentum_x << ", " << momentum_y << ", " << momentum_z << ")" << endl;
  			
  			//print out the position of particle 1
-			if(st % 1 == 0){
+			if(st % 20 == 0){
+        printf("Step:%d\n", st);
+        double momentum_x = 0;
+        double momentum_y = 0;
+        double momentum_z = 0;
+
+        for (int i=0; i<NParticle; i++){
+          momentum_x += myParticle.mass[i] * myParticle.vx[i];
+          momentum_y += myParticle.mass[i] * myParticle.vy[i];
+          momentum_z += myParticle.mass[i] * myParticle.vz[i];
+        }
+        cout << "(px , py,  pz) = (" << momentum_x << ", " << momentum_y << ", " << momentum_z << ")" << endl;
 				fprintf(output,"%f\t%f\t",myParticle.x[0],myParticle.y[0]);
 				fprintf(output,"%f\t%f\n",myParticle.x[1],myParticle.y[1]);
-        printf("(Fx,Fy)=(%.2e,%.2e) (ax, ay)=(%.2e,%.2e)\n",myParticle.Fx[0],myParticle.Fy[0]
+        printf("(Fx,Fy)=(%f\t,%f) (ax, ay)=(%.2e,%.2e)\n",myParticle.Fx[0],myParticle.Fy[0]
           ,myParticle.Fx[0]/myParticle.mass[0],myParticle.Fy[0]/myParticle.mass[0]);
-        printf("(Fx,Fy)=(%.2e,%.2e) (ax, ay)=(%.2e,%.2e)\n",myParticle.Fx[1],myParticle.Fy[1]
+        printf("(Fx,Fy)=(%.4e\t,%4e) (ax, ay)=(%.4e,%.4e)\n",myParticle.Fx[1],myParticle.Fy[1]
           ,myParticle.Fx[1]/myParticle.mass[1],myParticle.Fy[1]/myParticle.mass[1]);
+        printf("(V1x,V1y)=(%.4e\t,%.4e) (V2x, V2y)=(%.4e\t,%.4e)\n",myParticle.vx[0],myParticle.vy[0]
+          ,myParticle.vx[1],myParticle.vy[1]);
+
 			}
-			if(st % 10 == 0){
-				printf("Step : %d \n",st);
-			}
+			// if(st % 10 == 0){
+			// 	printf("Step : %d \n",st);
+			// }
  		}
 
 	
@@ -394,12 +429,17 @@ void poisson_solver_fft_force_3d(int const dim, struct grid3D *grid){
   double dNx = (double) (Nx), dNy = (double) (Ny), dNz = (double) (Nz); // default Nx=Ny=Nz
   int ii, jj, kk, index;
 
-  fftw_complex *fftsigma_a;
-  fftsigma_a = (fftw_complex*) fftw_malloc( sizeof(fftw_complex) * Nx*Ny*Nzh);
+  // fftw_complex *fftsigma_a;
+  // fftsigma_a = (fftw_complex*) fftw_malloc( sizeof(fftw_complex) * Nx*Ny*Nzh);
 
-  double *sigma_a, *phia; 
-  sigma_a = (double*) malloc( sizeof(double) * Nx*Ny*Nz );
-  phia = (double*) malloc( sizeof(double) * Nx*Ny*Nz );
+  // double *sigma_a, *phia; 
+  // sigma_a = (double*) malloc( sizeof(double) * Nx*Ny*Nz );
+  // phia = (double*) malloc( sizeof(double) * Nx*Ny*Nz );
+
+  double *in;
+  in = (double*) malloc( sizeof(double) * Nx*Ny*Nz );
+  fftw_complex *out;
+  out = (fftw_complex*) fftw_malloc( sizeof(fftw_complex) * Nx*Ny*Nzh);
 
   fftw_plan p, q;
 
@@ -407,8 +447,8 @@ void poisson_solver_fft_force_3d(int const dim, struct grid3D *grid){
     for (jj=0; jj < Ny; jj+=1) {
       for (kk=0; kk < Nz; kk+=1){
         index = (ii*Ny + jj)*Nz + kk;
-        sigma_a[ index ] = grid->density[ index ];
-        phia[ index ] = 0.;
+        in[ index ] = grid->density[ index ];
+        // phia[ index ] = 0.;
       } // for kk
     } // for jj
   } // for ii
@@ -417,15 +457,15 @@ void poisson_solver_fft_force_3d(int const dim, struct grid3D *grid){
     for (jj=0; jj < Ny; jj+=1) {
       for (kk=0; kk < Nzh; kk+=1){
         index = (ii*Ny + jj)*Nzh + kk;
-        fftsigma_a[ index ][0] = 0.;
-        fftsigma_a[ index ][1] = 0.;
+        out[ index ][0] = 0.;
+        out[ index ][1] = 0.;
       } // for kk
     } // for jj
   } // for ii
 
   /////////// fft ///////////
-  p = fftw_plan_dft_r2c_3d(Nx, Ny, Nz, sigma_a, fftsigma_a, FFTW_ESTIMATE);
-  q = fftw_plan_dft_c2r_3d(Nx, Ny, Nz, fftsigma_a, phia, FFTW_ESTIMATE);
+  p = fftw_plan_dft_r2c_3d(Nx, Ny, Nz, in, out, FFTW_ESTIMATE);
+  q = fftw_plan_dft_c2r_3d(Nx, Ny, Nz, out, in, FFTW_ESTIMATE);
   fftw_execute(p);
   
   double kxx, kyy, kzz;
@@ -442,8 +482,8 @@ void poisson_solver_fft_force_3d(int const dim, struct grid3D *grid){
         kzz = pow((double)(kk)*2.*M_PI/grid->L, 2.);        
         if(ii != 0 || jj != 0 || kk!=0){
           index = (ii*Ny+ jj)*Nzh + kk;
-          fftsigma_a[ index ][0] *= ( -4. * M_PI * G_const / ((kxx+kyy+kzz)) );
-          fftsigma_a[ index ][1] *= ( -4. * M_PI * G_const / ((kxx+kyy+kzz)) );
+          out[ index ][0] *= ( -4. * M_PI * G_const / ((kxx+kyy+kzz)) );
+          out[ index ][1] *= ( -4. * M_PI * G_const / ((kxx+kyy+kzz)) );
         } 
       } // for kk
     } // for jj
@@ -457,7 +497,7 @@ void poisson_solver_fft_force_3d(int const dim, struct grid3D *grid){
     for (jj=0; jj < Ny; jj+=1){
       for (kk=0; kk < Nz; kk+=1){
         index = ii*Ny*Nz + jj*Nz + kk;
-        grid->phi[ index ] = -1.*phia[ index ] / (double)(grid->N);
+        grid->phi[ index ] = -1.*in[ index ] / (double)(grid->N);
       } // for kk
     } // for jj
   } // for ii
@@ -474,9 +514,9 @@ void poisson_solver_fft_force_3d(int const dim, struct grid3D *grid){
   fftw_destroy_plan(q);
   fftw_cleanup();
 
-  free(sigma_a);
-  free(phia);
-  fftw_free(fftsigma_a);
+  free(in);
+  // free(phia);
+  fftw_free(out);
 
 }
 
