@@ -437,17 +437,17 @@ void poisson_solver_fft_force_3d(int const nthreads, int const dim, struct grid3
 		for (ii=0; ii < Nx; ii+=1){
 			if (2*ii < Nx) {fi = ii;}
 			else           {fi = Nx-ii;}
-			kxx = pow((double)(fi)*2.*M_PI/grid->L, 2.);
+			kxx = pow((double)(fi+1), 2.);
 			for (jj=0; jj < Ny; jj+=1){
 				if (2*jj < Ny) {fj = jj;}
 				else           {fj = Ny-jj;}
-				kyy = pow((double)(fj)*2.*M_PI/grid->L, 2.);      
+				kyy = pow((double)(fj+1), 2.);      
 				for (kk=0; kk < Nzh ; kk+=1){
-					kzz = pow((double)(kk)*2.*M_PI/grid->L, 2.);        
+					kzz = pow((double)(kk+1), 2.);        
 					if(ii != 0 || jj != 0 || kk!=0){
 						index = (ii*Ny+ jj)*Nzh + kk;
-						out[ index ][0] *= ( -4. * M_PI * G_const / ((kxx+kyy+kzz)) );
-						out[ index ][1] *= ( -4. * M_PI * G_const / ((kxx+kyy+kzz)) );
+						out[ index ][0] /= ((kxx+kyy+kzz)) );
+						out[ index ][1] /= ((kxx+kyy+kzz)) );
 						} 
 				} // for kk
 			} // for jj
@@ -464,7 +464,7 @@ void poisson_solver_fft_force_3d(int const nthreads, int const dim, struct grid3
 			for (jj=0; jj < Ny; jj+=1){
 				for (kk=0; kk < Nz; kk+=1){
 					index = ii*Ny*Nz + jj*Nz + kk;
-					grid->phi[ index ] = in[ index ] / (double)(grid->N) * 4. * pow(M_PI, 3);
+					grid->phi[ index ] = -1. * in[ index ] * / M_PI / 2.;
 				} // for kk
 			} // for jj
 		} // for ii
