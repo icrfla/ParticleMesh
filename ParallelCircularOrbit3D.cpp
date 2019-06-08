@@ -464,7 +464,7 @@ void poisson_solver_fft_force_3d(int const nthreads, int const dim, struct grid3
 			for (jj=0; jj < Ny; jj+=1){
 				for (kk=0; kk < Nz; kk+=1){
 					index = ii*Ny*Nz + jj*Nz + kk;
-					grid->phi[ index ] = in[ index ] / (double)(grid->N);
+					grid->phi[ index ] = in[ index ] / (double)(grid->N) * 4. * pow(M_PI, 3);
 				} // for kk
 			} // for jj
 		} // for ii
