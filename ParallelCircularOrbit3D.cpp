@@ -78,7 +78,7 @@ int main( int argc, char *argv[] ){
 	//================Simulation Constants
 	int weightFunction = 2;  	//0/1/2 : NGP/CIC/TSC
 	int orbitIntegration = 2;	//0/1/2 : KDK/DKD/RK4
-	int poissonSolver = 0;		//0/1   : fft/isolated
+	int poissonSolver = 1;		//0/1   : fft/isolated
 	int boundary = 2;           	//0/1/2 : periodic/isolated/no boundary
 	int dim = 3;				
 	double L = 10.0;				//Length of box (from -L/2 ~ L/2)
@@ -688,7 +688,7 @@ void isolatedPotential(int const nthreads,struct grid3D *grid , fftw_complex *ff
 			for(int k=0;k<Nz;k++){
 				int index1 = i*Nx*Ny+j*Nx+k;//index for N size grid.
 				int index2 = i*NNx*NNy + j*NNx + k;// index for 2N size grid.
-				grid->phi[index1] = -grid->dx * grid->dy * grid->dz * sqrt(pow(ifftphi[index2][0],2)+pow(ifftphi[index2][1],2));
+				grid->phi[index1] = -1.0/grid->dx /(8*N)* sqrt(pow(ifftphi[index2][0],2)+pow(ifftphi[index2][1],2));
 			}
 		}		
 	}
