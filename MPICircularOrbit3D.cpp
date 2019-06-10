@@ -1,4 +1,4 @@
-//To compile should add "-lfftw3 -lgsl"
+//To compile should add "-lomp -lfftw3_mpi -lfftw3"
 #include <stdio.h>
 #include <math.h>
 // #include <gsl/gsl_rng.h>
@@ -7,7 +7,9 @@
 #include <string>
 #include <iostream>
 #include <time.h>
-#include <fftw3.h>
+//#include <fftw3.h>
+#include <fftw3-mpi.h>
+#include <mpi.h>
 #include <complex.h>
 using namespace std;
 
@@ -74,10 +76,18 @@ void freeMemoryGrid(struct grid3D *grid);
 
 
 int main( int argc, char *argv[] ){
+
+	// MPI initialization
+	int NRank, MyRank;
+	MPI_Init( &argc, &argv );
+	fftw_mpi_init();
+	MPI_Comm_rank( MPI_COMM_WORLD, &MyRank );
+	MPI_Comm_size( MPI_COMM_WORLD, &NRank );
+
 	//================Simulation Constants
 	int weightFunction = 2;  	//0/1/2 : NGP/CIC/TSC
-	int orbitIntegration = 2;	//0/1/2 : KDK/DKD/RK4
-	int poissonSolver = 0;		//0/1   : fft/isolated
+	int orbitIntegration = 0;	//0/1/2 : KDK/DKD/RK4
+	int poissonSolver = 1;		//0/1   : fft/isolated
 	int boundary = 2;           	//0/1/2 : periodic/isolated/no boundary
 	int dim = 3;				
 	double L = 10.0;				//Length of box (from -L/2 ~ L/2)
@@ -139,7 +149,11 @@ int main( int argc, char *argv[] ){
 		}
 
 		if(poissonSolver == 1){
-			fftgf = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * 8*grid.N);
+			//fftgf = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * 8*grid.N);
+			ptrdiff_t NNx = 2*(grid.Nx), NNy = 2*(grid.Ny), NNz = 2*(grid.Nz); 	
+			ptrdiff_t alloc_local, local_n0, local_0_start, i, j;
+			alloc_local = fftw_mpi_local_size_3d(NNx, NNy, NNz, MPI_COMM_WORLD, &local_n0, &local_0_start);
+			fftgf = fftw_alloc_complex(alloc_local);	
 			calculateGreenFFT(&grid,fftgf);
 		}
       
@@ -160,10 +174,10 @@ int main( int argc, char *argv[] ){
 		// 	myParticle.y[i]=gsl_rng_uniform(rng) * grid.L - grid.L/2;
 		// 	printf("At (%f,%f) \n",myParticle.x[i],myParticle.y[i]);
 		// }
-		myParticle.x[0] = 1.0;
+		myParticle.x[0] = rp * myParticle.mass[1] / scale;
 		myParticle.y[0] = 0.0;
 		myParticle.z[0] = 0.0;
-		myParticle.x[1] = -2.0;
+		myParticle.x[1] = -1. * rp * myParticle.mass[0] / scale;
 		myParticle.y[1] = 0.0;
 		myParticle.z[1] = 0.0;
 		
@@ -185,13 +199,16 @@ int main( int argc, char *argv[] ){
 	//Initialize Force field value
 		for(int i=0;i<grid.N;i++){
 			grid.Fx[i]=0.0;
-			grid.Fy[i]=0.0;		
+			grid.Fy[i]=0.0;	
+			grid.Fz[i]=0.0;	
 		}
 	//Test 
 		
-
-	// printf("%f\t%f\t%f\n",myParticle.Fx[0],myParticle.Fy[0],myParticle.Fz[0]);
-	// printf("%f\t%f\t%f\n",myParticle.Fx[1],myParticle.Fy[1],myParticle.Fz[1]);
+		if(MyRank == 0){
+			printf("%f\t%f\t%f\n",myParticle.Fx[0],myParticle.Fy[0],myParticle.Fz[0]);
+			printf("%f\t%f\t%f\n",myParticle.Fx[1],myParticle.Fy[1],myParticle.Fz[1]);
+		}
+	
 	double momentum_x = 0;	
 	double momentum_y = 0;
 	double momentum_z = 0;
@@ -342,19 +359,19 @@ int main( int argc, char *argv[] ){
 
 	
 	
-	//Print out Density/Potential field
-		for(int i=0;i<grid.N;i++){
-			if(i % grid.Nx == 0){
-				printf("\n");
-			}
-			printf("%.2f\t",grid.phi[i]);
-		}
-		printf("\n");
+	// //Print out Density/Potential field
+	// 	for(int i=0;i<grid.N;i++){
+	// 		if(i % grid.Nx == 0){
+	// 			printf("\n");
+	// 		}
+	// 		printf("%.2f\t",grid.phi[i]);
+	// 	}
+	// 	printf("\n");
 
-	//Print out the force on a particle.
-		for(int i=0;i<myParticle.number;i++){
-			printf("(Fx,Fy)=(%.2f,%.2f)\n",myParticle.Fx[i],myParticle.Fy[i]);
-		}
+	// //Print out the force on a particle.
+	// 	for(int i=0;i<myParticle.number;i++){
+	// 		printf("(Fx,Fy)=(%.2f,%.2f)\n",myParticle.Fx[i],myParticle.Fy[i]);
+	// 	}
 
 	freeMemoryGrid(&grid);
 	freeMemoryParticle(&myParticle);
@@ -365,6 +382,8 @@ int main( int argc, char *argv[] ){
 	if(poissonSolver == 1){
 		free(fftgf);
 	}
+
+	MPI_Finalize();
 	return 0;
 }
 
@@ -393,7 +412,9 @@ void poisson_solver_fft_force_3d(int const dim, struct grid3D *grid){
 	out = (fftw_complex*) fftw_malloc( sizeof(fftw_complex) * Nx*Ny*Nzh);
 
 	fftw_plan p, q;
-	
+
+	fftw_mpi_init();
+
 	for (ii=0; ii < Nx; ii+=1) {
 		for (jj=0; jj < Ny; jj+=1) {
 			for (kk=0; kk < Nz; kk+=1){
@@ -415,8 +436,8 @@ void poisson_solver_fft_force_3d(int const dim, struct grid3D *grid){
 	} // for ii
 
 	/////////// fft ///////////
-	p = fftw_plan_dft_r2c_3d(Nx, Ny, Nz, in, out, FFTW_ESTIMATE);
-	q = fftw_plan_dft_c2r_3d(Nx, Ny, Nz, out, in, FFTW_ESTIMATE);
+	p = fftw_mpi_plan_dft_r2c_3d(Nx, Ny, Nz, in, out, MPI_COMM_WORLD, FFTW_ESTIMATE);
+	q = fftw_mpi_plan_dft_c2r_3d(Nx, Ny, Nz, out, in, MPI_COMM_WORLD, FFTW_ESTIMATE);
 	fftw_execute(p);
 
 	double kxx, kyy, kzz;
@@ -430,18 +451,15 @@ void poisson_solver_fft_force_3d(int const dim, struct grid3D *grid){
 			else           {fj = Ny-jj;}
 			kyy = pow((double)(fj)*2.*M_PI/grid->L, 2.);      
 			for (kk=0; kk < Nzh ; kk+=1){
-				if (2*kk < Nz) {fk = kk;}
-				else           {fk = Nz-kk;}
-				kzz = pow((double)(fk)*2.*M_PI/grid->L, 2.);        
+				kzz = pow((double)(kk)*2.*M_PI/grid->L, 2.);        
 				if(ii != 0 || jj != 0 || kk!=0){
 					index = (ii*Ny+ jj)*Nzh + kk;
-					out[ index ][0] *= (G_const / ((kxx+kyy+kzz)) );
-					out[ index ][1] *= (G_const / ((kxx+kyy+kzz)) );
+					out[ index ][0] *= ( -4. * M_PI * G_const / ((kxx+kyy+kzz)) );
+					out[ index ][1] *= ( -4. * M_PI * G_const / ((kxx+kyy+kzz)) );
 					} 
 			} // for kk
 		} // for jj
 	} // for ii
-
   
 	/////////// inverse fft ///////////
 	fftw_execute(q);
@@ -451,7 +469,7 @@ void poisson_solver_fft_force_3d(int const dim, struct grid3D *grid){
 		for (jj=0; jj < Ny; jj+=1){
 			for (kk=0; kk < Nz; kk+=1){
 				index = ii*Ny*Nz + jj*Nz + kk;
-				grid->phi[ index ] = -1.  * in[ index ] ;
+				grid->phi[ index ] = -1.*in[ index ] / (double)(grid->N);
 			} // for kk
 		} // for jj
 	} // for ii
@@ -496,22 +514,34 @@ void _2nd_order_diff_3d(struct grid3D *grid, int const ii, int const jj, int con
 }
 
 void calculateGreenFFT(struct grid3D *grid, fftw_complex *fftgf){
+	int NRank, MyRank;
+	MPI_Comm_rank( MPI_COMM_WORLD, &MyRank );
+	MPI_Comm_size( MPI_COMM_WORLD, &NRank );
+	
 	double *greenFunction;
 	int N = grid->N;
 	int Nx = grid->Nx;
 	int Ny = grid->Ny;
 	int Nz = grid->Nz;
 
-	int NNx = 2*Nx;
-	int NNy = 2*Ny;
-	int NNz = 2*Nz;
+	//int NNx = 2*Nx;
+	//int NNy = 2*Ny;
+	//int NNz = 2*Nz;
+	ptrdiff_t NNx = 2*Nx;
+	ptrdiff_t NNy = 2*Ny;
+	ptrdiff_t NNz = 2*Nz;
+
+	ptrdiff_t alloc_local, local_n0, local_0_start, i, j;
+	alloc_local = fftw_mpi_local_size_3d(NNx, NNy, NNz, MPI_COMM_WORLD, &local_n0, &local_0_start);
 
 	greenFunction = (double*)malloc(8*N*sizeof(double));
 	fftw_complex *gf; 	//For green function
 
 	fftw_plan p2;
-
-	gf = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * 8*N);
+	
+	fftw_mpi_init();
+	//gf = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * 8*N);
+	gf = fftw_alloc_complex(alloc_local);
 
 	//Initialize green function array
 	for(int i=0;i<NNx;i++){
@@ -564,16 +594,17 @@ void calculateGreenFFT(struct grid3D *grid, fftw_complex *fftgf){
 		}
 	}
 
-	for(int i=0;i<NNx;i++){
+	for(int i=0;i<local_n0;i++){
 		for(int j=0;j<NNy;j++){
 			for(int k=0;k<NNz;k++){
-				gf[i*NNx*NNy + j*NNx + k][0] = greenFunction[i*NNx*NNy + j*NNx + k];
-				gf[i*NNx*NNy + j*NNx + k][1] = 0.0;
+				int I = i + MyRank*local_n0;
+				gf[i*NNy*NNz + j*NNz + k][0] = greenFunction[I*NNy*NNz + j*NNz + k];
+				gf[i*NNy*NNz + j*NNz + k][1] = 0.0;
 			}
 			
 		}
 	}
-	p2 = fftw_plan_dft_3d(NNx, NNy,NNz, gf, fftgf, FFTW_FORWARD, FFTW_ESTIMATE);
+	p2 = fftw_mpi_plan_dft_3d(NNx, NNy,NNz, gf, fftgf, MPI_COMM_WORLD, FFTW_FORWARD, FFTW_ESTIMATE);
 	fftw_execute(p2);
 	fftw_destroy_plan(p2);
 	free(gf);
@@ -582,15 +613,27 @@ void calculateGreenFFT(struct grid3D *grid, fftw_complex *fftgf){
 }
 
 void isolatedPotential(struct grid3D *grid , fftw_complex *fftgf){
+	
+	int NRank, MyRank;
+	MPI_Comm_rank( MPI_COMM_WORLD, &MyRank );
+	MPI_Comm_size( MPI_COMM_WORLD, &NRank );
+
 	double *densityPad;
 	int N = grid->N;
 	int Nx = grid->Nx;
 	int Ny = grid->Ny;
 	int Nz = grid->Nz;
 
-	int NNx = 2*Nx;
-	int NNy = 2*Ny;
-	int NNz = 2*Nz;
+
+	//int NNx = 2*Nx;
+	//int NNy = 2*Ny;
+	//int NNz = 2*Nz;
+	ptrdiff_t NNx = 2*Nx;
+	ptrdiff_t NNy = 2*Ny;
+	ptrdiff_t NNz = 2*Nz;
+
+	ptrdiff_t alloc_local, local_n0, local_0_start, i, j;
+	alloc_local = fftw_mpi_local_size_3d(NNx, NNy, NNz, MPI_COMM_WORLD, &local_n0, &local_0_start);
 
 	densityPad = (double*)malloc(8*N*sizeof(double));
 	
@@ -600,10 +643,18 @@ void isolatedPotential(struct grid3D *grid , fftw_complex *fftgf){
 	fftw_complex *phi,*ifftphi;	//For potential
 	fftw_plan p1 , q;
 
-	dp = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * 8*N);
-	fftdp = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * 8*N);
-	phi = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * 8*N);
-	ifftphi = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * 8*N);
+	fftw_mpi_init();
+	
+
+	//dp = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * 8*N);
+	//fftdp = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * 8*N);
+	//phi = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * 8*N);
+	//ifftphi = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * 8*N);
+
+	dp	= fftw_alloc_complex(alloc_local);
+	fftdp	= fftw_alloc_complex(alloc_local);
+	phi	= fftw_alloc_complex(alloc_local);
+	ifftphi	= fftw_alloc_complex(alloc_local);
 
 	for(int i=0;i<NNx;i++){
 		for(int j=0;j<NNy;j++){
@@ -618,28 +669,27 @@ void isolatedPotential(struct grid3D *grid , fftw_complex *fftgf){
 			}
 		}
 	}
-	
-
-	for(int i=0;i<NNx;i++){
+	for(int i=0;i<local_n0;i++){
 		for(int j=0;j<NNy;j++){
+			int I = i + MyRank*local_n0;
 			for(int k=0;k<NNz;k++){
-				dp[i*NNx*NNy + j*NNx + k][0] = densityPad[i*NNx*NNy + j*NNx + k];
-				dp[i*NNx*NNy + j*NNx + k][1] = 0.0;
+				dp[i*NNz*NNy + j*NNz + k][0] = densityPad[I*NNy*NNz + j*NNy + k];
+				dp[i*NNz*NNy + j*NNz + k][1] = 0.0;
 			}
 			
 		}
 	}
 
 	//fft
-	p1 = fftw_plan_dft_3d(NNx, NNy, NNz, dp, fftdp, FFTW_FORWARD, FFTW_ESTIMATE);
+	p1 = fftw_mpi_plan_dft_3d(NNx, NNy, NNz, dp, fftdp, MPI_COMM_WORLD, FFTW_FORWARD, FFTW_ESTIMATE);
 	fftw_execute(p1);
 	fftw_destroy_plan(p1);
 
-	for(int i=0;i<NNx;i++){
+	for(int i=0;i<local_n0;i++){
 		for(int j=0;j<NNy;j++){
 			for(int k=0;k<NNz;k++){
 				//Multiply 2 imaginary numbers
-				int index = i*NNx*NNy + j*NNx + k;
+				int index = i*NNz*NNy + j*NNz + k;
 				phi[index][0] = fftdp[index][0] * fftgf[index][0] - fftdp[index][1] * fftgf[index][1];
 				phi[index][1] = fftdp[index][0] * fftgf[index][1] + fftdp[index][1] * fftgf[index][0];
 			}
@@ -647,18 +697,37 @@ void isolatedPotential(struct grid3D *grid , fftw_complex *fftgf){
 	}
 
 	//ifft
-	q = fftw_plan_dft_3d(NNx, NNy, NNz, phi, ifftphi, FFTW_BACKWARD, FFTW_ESTIMATE);
+	q = fftw_mpi_plan_dft_3d(NNx, NNy, NNz, phi, ifftphi, MPI_COMM_WORLD, FFTW_BACKWARD, FFTW_ESTIMATE);
 	fftw_execute(q);
 	fftw_destroy_plan(q);
 
+	double send_buf[grid->N], recv_buf[grid->N];
+	//!!!!
 	for(int i=0;i<Nx;i++){
 		for(int j=0;j<Ny;j++){
 			for(int k=0;k<Nz;k++){
-				int index1 = i*Nx*Ny+j*Nx+k;//index for N size grid.
-				int index2 = i*NNx*NNy + j*NNx + k;// index for 2N size grid.
-				grid->phi[index1] = -1.0/grid->dx/(8*N) * sqrt(pow(ifftphi[index2][0],2)+pow(ifftphi[index2][1],2));
+				//int I = i + MyRank*int(local_n0/2);
+				int index1 = i*Ny*Nz+j*Ny+k;//index for N size grid.
+				int index2 = i*NNy*NNz + j*NNz + k;// index for 2N size grid.
+				grid->phi[index1] = -1 / grid->dx / (8*N) * sqrt(pow(ifftphi[index2][0],2)+pow(ifftphi[index2][1],2));
+				send_buf[index1]  = grid->phi[index1];
 			}
 		}		
+	}
+
+	if (MyRank == 0){
+		MPI_Send(&send_buf, grid->N, MPI_DOUBLE, 1, 111, MPI_COMM_WORLD);
+	}
+	else{
+		MPI_Recv(&recv_buf, grid->N, MPI_DOUBLE, 0, 111, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+		for(int i=0;i<Nx;i++){
+			for(int j=0;j<Ny;j++){
+				for(int k=0;k<Nz;k++){
+					int index1 = i*Ny*Nz+j*Ny+k;//index for N size grid.
+					grid->phi[index1] = recv_buf[index1];
+				}
+			}
+		}
 	}
 
 	for (int i=0; i < Nx; i++){
@@ -728,7 +797,7 @@ void Weight(struct grid3D *grid,struct particle3D *particle,int type){
 				}else if(ddx<= grid->dx/2*3.0){
 					weightX[xx+1] = 0.5*pow(1.5-ddx / grid->dx,2);
 				}else{
-					printf("Should not be here");
+					printf("Should not be here ");
 					weightX[xx+1]=0.0;
 				}
 				
@@ -875,6 +944,18 @@ void WeightForce(struct grid3D *grid,struct particle3D *particle,int type){
 }
 void kick(struct particle3D *particle , double dt){
 	double ax,ay,az;
+#ifdef CHECK_THIS_LATER
+	int NRank, MyRank;
+	MPI_Comm_rank( MPI_COMM_WORLD, &MyRank );
+	MPI_Comm_size( MPI_COMM_WORLD, &NRank );
+	
+	int N 	= particle->number;
+	int ini = int(MyRank*N/2);
+	int fin = (MyRank+1) * int(N/2) + MyRank * remainder(MyRank, 2);
+	int YourRank = remainder(MyRank,2);
+
+	for(int i = ini ; i<fin ; i++){
+#endif
 	for(int i=0 ; i<particle->number ; i++){
 		//Cauculate the acceleration of each particle.
 		ax = particle->Fx[i] / particle->mass[i];
