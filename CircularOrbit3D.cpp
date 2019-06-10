@@ -81,7 +81,7 @@ int main( int argc, char *argv[] ){
 	int boundary = 2;           	//0/1/2 : periodic/isolated/no boundary
 	int dim = 3;				
 	double L = 10.0;				//Length of box (from -L/2 ~ L/2)
-	int Nx = 100;				//Number of grid in x direction. (should be odd number)
+	int Nx = 50;				//Number of grid in x direction. (should be odd number)
 	int NParticle = 2;//Number of particles used in simulation
 	double massParticle = 1.0;
 	double dt = 1.0e-2;
@@ -145,7 +145,7 @@ int main( int argc, char *argv[] ){
       
 	
 	//Initialize mass of particles
-		myParticle.mass[0]=4.0;
+		myParticle.mass[0]=2.0;
 		myParticle.mass[1]=1.0;
 		double scale = myParticle.mass[0] + myParticle.mass[1];
 		double rp = 1.0*scale; // distance between particles, same unit with L
@@ -160,10 +160,10 @@ int main( int argc, char *argv[] ){
 		// 	myParticle.y[i]=gsl_rng_uniform(rng) * grid.L - grid.L/2;
 		// 	printf("At (%f,%f) \n",myParticle.x[i],myParticle.y[i]);
 		// }
-		myParticle.x[0] = rp * myParticle.mass[1] / scale;
+		myParticle.x[0] = 1.0;
 		myParticle.y[0] = 0.0;
 		myParticle.z[0] = 0.0;
-		myParticle.x[1] = -1. * rp * myParticle.mass[0] / scale;
+		myParticle.x[1] = -2.0;
 		myParticle.y[1] = 0.0;
 		myParticle.z[1] = 0.0;
 		
@@ -175,10 +175,10 @@ int main( int argc, char *argv[] ){
 
 	//Initialize Initial velocity
 		myParticle.vx[0] = 0.0;
-		myParticle.vy[0] = -sqrt(fabs(myParticle.Fx[0]*myParticle.mass[1])/myParticle.mass[0]);
+		myParticle.vy[0] = -sqrt(fabs(myParticle.Fx[0]*myParticle.x[0])/myParticle.mass[0]);
 		myParticle.vz[0] = 0.0;
 		myParticle.vx[1] = 0.0;
-		myParticle.vy[1] = sqrt(fabs(myParticle.Fx[1]*myParticle.mass[0])/myParticle.mass[1]);
+		myParticle.vy[1] = sqrt(fabs(myParticle.Fx[1]*myParticle.x[1])/myParticle.mass[1]);
 		//myParticle.vy[1] = 20;
 		myParticle.vz[1] = 0.0;
 
@@ -342,19 +342,19 @@ int main( int argc, char *argv[] ){
 
 	
 	
-	// //Print out Density/Potential field
-	// 	for(int i=0;i<grid.N;i++){
-	// 		if(i % grid.Nx == 0){
-	// 			printf("\n");
-	// 		}
-	// 		printf("%.2f\t",grid.phi[i]);
-	// 	}
-	// 	printf("\n");
+	//Print out Density/Potential field
+		for(int i=0;i<grid.N;i++){
+			if(i % grid.Nx == 0){
+				printf("\n");
+			}
+			printf("%.2f\t",grid.phi[i]);
+		}
+		printf("\n");
 
-	// //Print out the force on a particle.
-	// 	for(int i=0;i<myParticle.number;i++){
-	// 		printf("(Fx,Fy)=(%.2f,%.2f)\n",myParticle.Fx[i],myParticle.Fy[i]);
-	// 	}
+	//Print out the force on a particle.
+		for(int i=0;i<myParticle.number;i++){
+			printf("(Fx,Fy)=(%.2f,%.2f)\n",myParticle.Fx[i],myParticle.Fy[i]);
+		}
 
 	freeMemoryGrid(&grid);
 	freeMemoryParticle(&myParticle);
@@ -430,15 +430,18 @@ void poisson_solver_fft_force_3d(int const dim, struct grid3D *grid){
 			else           {fj = Ny-jj;}
 			kyy = pow((double)(fj)*2.*M_PI/grid->L, 2.);      
 			for (kk=0; kk < Nzh ; kk+=1){
-				kzz = pow((double)(kk)*2.*M_PI/grid->L, 2.);        
+				if (2*kk < Nz) {fk = kk;}
+				else           {fk = Nz-kk;}
+				kzz = pow((double)(fk)*2.*M_PI/grid->L, 2.);        
 				if(ii != 0 || jj != 0 || kk!=0){
 					index = (ii*Ny+ jj)*Nzh + kk;
-					out[ index ][0] *= ( -4. * M_PI * G_const / ((kxx+kyy+kzz)) );
-					out[ index ][1] *= ( -4. * M_PI * G_const / ((kxx+kyy+kzz)) );
+					out[ index ][0] *= (G_const / ((kxx+kyy+kzz)) );
+					out[ index ][1] *= (G_const / ((kxx+kyy+kzz)) );
 					} 
 			} // for kk
 		} // for jj
 	} // for ii
+
   
 	/////////// inverse fft ///////////
 	fftw_execute(q);
@@ -448,7 +451,7 @@ void poisson_solver_fft_force_3d(int const dim, struct grid3D *grid){
 		for (jj=0; jj < Ny; jj+=1){
 			for (kk=0; kk < Nz; kk+=1){
 				index = ii*Ny*Nz + jj*Nz + kk;
-				grid->phi[ index ] = -1.*in[ index ] / (double)(grid->N);
+				grid->phi[ index ] = -1.  * in[ index ] ;
 			} // for kk
 		} // for jj
 	} // for ii
@@ -653,7 +656,7 @@ void isolatedPotential(struct grid3D *grid , fftw_complex *fftgf){
 			for(int k=0;k<Nz;k++){
 				int index1 = i*Nx*Ny+j*Nx+k;//index for N size grid.
 				int index2 = i*NNx*NNy + j*NNx + k;// index for 2N size grid.
-				grid->phi[index1] = -grid->dx * grid->dy * grid->dz * sqrt(pow(ifftphi[index2][0],2)+pow(ifftphi[index2][1],2));
+				grid->phi[index1] = -1.0/grid->dx/(8*N) * sqrt(pow(ifftphi[index2][0],2)+pow(ifftphi[index2][1],2));
 			}
 		}		
 	}
