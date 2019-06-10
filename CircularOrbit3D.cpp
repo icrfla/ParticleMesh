@@ -949,7 +949,7 @@ void rk4_end(struct particle3D *particle, struct rk43D *rk4, double dt){
 }
 void periodic_boundary(double position, double length){
 	int sign = position/abs(position);
-	position = sign * (abs(position + sign*length/2) % length) - sign*length/2;
+	position = sign * fmod(abs(position + sign*length/2), length) - sign*length/2;
 	cout << "A particle reaches the boundary." << endl;
 }
 void boundary_check(int boundary, struct particle3D *particle, double L){
