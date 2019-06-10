@@ -175,10 +175,10 @@ int main( int argc, char *argv[] ){
 
 	//Initialize Initial velocity
 		myParticle.vx[0] = 0.0;
-		myParticle.vy[0] = -sqrt(fabs(myParticle.Fx[0]*myParticle.mass[1])/myParticle.mass[0]);
+		myParticle.vy[0] = -sqrt(fabs(myParticle.Fx[0]*myParticle.x[0])/myParticle.mass[0]);
 		myParticle.vz[0] = 0.0;
 		myParticle.vx[1] = 0.0;
-		myParticle.vy[1] = sqrt(fabs(myParticle.Fx[1]*myParticle.mass[0])/myParticle.mass[1]);
+		myParticle.vy[1] = sqrt(fabs(myParticle.Fx[1]*myParticle.x[1])/myParticle.mass[1]);
 		//myParticle.vy[1] = 20;
 		myParticle.vz[1] = 0.0;
 
