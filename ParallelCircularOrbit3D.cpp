@@ -53,8 +53,8 @@ struct rk43D{
 void Weight(struct grid3D *grid,struct particle3D *particle,int type);
 void WeightForce(struct grid3D *grid,struct particle3D *particle,int type);
 
-void calculateGreenFFT(struct grid3D *grid, fftw_complex *fftgf);
-void isolatedPotential(struct grid3D *grid,fftw_complex *fftgf);
+void calculateGreenFFT(int const nthreads,struct grid3D *grid, fftw_complex *fftgf);
+void isolatedPotential(int const nthreads,struct grid3D *grid,fftw_complex *fftgf);
 void poisson_solver_fft_force_3d(int const nthreads, int const dim, struct grid3D *grid);
 void _2nd_order_diff_3d(struct grid3D *grid, int const ii, int const jj, int const kk );
 
@@ -78,7 +78,7 @@ int main( int argc, char *argv[] ){
 	//================Simulation Constants
 	int weightFunction = 2;  	//0/1/2 : NGP/CIC/TSC
 	int orbitIntegration = 2;	//0/1/2 : KDK/DKD/RK4
-	int poissonSolver = 0;		//0/1   : fft/isolated
+	int poissonSolver = 1;		//0/1   : fft/isolated
 	int boundary = 2;           	//0/1/2 : periodic/isolated/no boundary
 	int dim = 3;				
 	double L = 10.0;				//Length of box (from -L/2 ~ L/2)
@@ -88,6 +88,8 @@ int main( int argc, char *argv[] ){
 	double dt = 1.0e-2;
 	double G = 1.0;
 	int nthreads = 2;
+
+	omp_set_num_threads(nthreads); //Use nthreads for all parallel block by default.
 
 	string swei[3] = {"NGP", "CIC", "TSC"};
 	string sorb[3] = {"KDK", "DKD", "RK4"};
@@ -142,7 +144,7 @@ int main( int argc, char *argv[] ){
 
 		if(poissonSolver == 1){
 			fftgf = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * 8*grid.N);
-			calculateGreenFFT(&grid,fftgf);
+			calculateGreenFFT(nthreads,&grid,fftgf);
 		}
       
 	
@@ -172,7 +174,7 @@ int main( int argc, char *argv[] ){
 
 		Weight(&grid,&myParticle,weightFunction);
 		if ( poissonSolver == 0 ) 	poisson_solver_fft_force_3d(nthreads, dim, &grid);
-		else if ( poissonSolver == 1 )	isolatedPotential(&grid,fftgf);
+		else if ( poissonSolver == 1 )	isolatedPotential(nthreads,&grid,fftgf);
 		WeightForce(&grid,&myParticle,weightFunction);
 
 	//Initialize Initial velocity
@@ -227,7 +229,7 @@ int main( int argc, char *argv[] ){
 
 	 	//Use Fourier Transform to calculate potential and force.
 		if ( poissonSolver == 0 )	poisson_solver_fft_force_3d(nthreads, dim, &grid);
-		else if ( poissonSolver == 1 )	isolatedPotential(&grid,fftgf);
+		else if ( poissonSolver == 1 )	isolatedPotential(nthreads,&grid,fftgf);
 
  		//Remap the force to particle.
 		WeightForce(&grid,&myParticle,weightFunction);
@@ -242,7 +244,7 @@ int main( int argc, char *argv[] ){
 			boundary_check(boundary, &myParticle, L);
  			Weight(&grid,&myParticle,weightFunction);
 			if ( poissonSolver == 0 )       poisson_solver_fft_force_3d(nthreads, dim, &grid);
-			else if ( poissonSolver == 1 )  isolatedPotential(&grid,fftgf);
+			else if ( poissonSolver == 1 )  isolatedPotential(nthreads,&grid,fftgf);
 			WeightForce(&grid,&myParticle,weightFunction);
 
  			kick(&myParticle,dt/2,nthreads);
@@ -253,7 +255,7 @@ int main( int argc, char *argv[] ){
 			boundary_check(boundary, &myParticle, L);
  			Weight(&grid,&myParticle,weightFunction);
 			if ( poissonSolver == 0 )       poisson_solver_fft_force_3d(nthreads, dim, &grid);
-			else if ( poissonSolver == 1 )  isolatedPotential(&grid,fftgf);
+			else if ( poissonSolver == 1 )  isolatedPotential(nthreads,&grid,fftgf);
 			WeightForce(&grid,&myParticle,weightFunction);
 
  			kick(&myParticle,dt,nthreads);
@@ -267,21 +269,21 @@ int main( int argc, char *argv[] ){
 			boundary_check(boundary, &buffParticle, L);
 			Weight(&grid,&buffParticle,weightFunction);
 			if ( poissonSolver == 0 )       poisson_solver_fft_force_3d(nthreads, dim, &grid);
-			else if ( poissonSolver == 1 )  isolatedPotential(&grid,fftgf);
+			else if ( poissonSolver == 1 )  isolatedPotential(nthreads,&grid,fftgf);
 			WeightForce(&grid,&buffParticle,weightFunction);
 			
 			rk4_mid(&myParticle,&buffParticle,&myrk4,dt/2,2,nthreads);        //k2
 			boundary_check(boundary, &buffParticle, L);
 			Weight(&grid,&buffParticle,weightFunction);
 			if ( poissonSolver == 0 )       poisson_solver_fft_force_3d(nthreads, dim, &grid);
-			else if ( poissonSolver == 1 )  isolatedPotential(&grid,fftgf);
+			else if ( poissonSolver == 1 )  isolatedPotential(nthreads,&grid,fftgf);
 			WeightForce(&grid,&buffParticle,weightFunction);
 			
 			rk4_mid(&myParticle,&buffParticle,&myrk4,dt,2,nthreads);          //k3
 			boundary_check(boundary, &buffParticle, L);
 			Weight(&grid,&buffParticle,weightFunction);
 			if ( poissonSolver == 0 )       poisson_solver_fft_force_3d(nthreads, dim, &grid);
-			else if ( poissonSolver == 1 )  isolatedPotential(&grid,fftgf);
+			else if ( poissonSolver == 1 )  isolatedPotential(nthreads,&grid,fftgf);
 			WeightForce(&grid,&buffParticle,weightFunction);
 			
 			rk4_mid(&myParticle,&buffParticle,&myrk4,dt,1,nthreads);          //k4
@@ -437,17 +439,17 @@ void poisson_solver_fft_force_3d(int const nthreads, int const dim, struct grid3
 		for (ii=0; ii < Nx; ii+=1){
 			if (2*ii < Nx) {fi = ii;}
 			else           {fi = Nx-ii;}
-			kxx = pow((double)(fi)*2.*M_PI/grid->L, 2.);
+			kxx = pow((double)(fi+1), 2.);
 			for (jj=0; jj < Ny; jj+=1){
 				if (2*jj < Ny) {fj = jj;}
 				else           {fj = Ny-jj;}
-				kyy = pow((double)(fj)*2.*M_PI/grid->L, 2.);      
+				kyy = pow((double)(fj+1), 2.);      
 				for (kk=0; kk < Nzh ; kk+=1){
-					kzz = pow((double)(kk)*2.*M_PI/grid->L, 2.);        
+					kzz = pow((double)(kk+1), 2.);        
 					if(ii != 0 || jj != 0 || kk!=0){
 						index = (ii*Ny+ jj)*Nzh + kk;
-						out[ index ][0] *= ( -4. * M_PI * G_const / ((kxx+kyy+kzz)) );
-						out[ index ][1] *= ( -4. * M_PI * G_const / ((kxx+kyy+kzz)) );
+						out[ index ][0] /= ((kxx+kyy+kzz)) ;
+						out[ index ][1] /= ((kxx+kyy+kzz)) ;
 						} 
 				} // for kk
 			} // for jj
@@ -464,7 +466,7 @@ void poisson_solver_fft_force_3d(int const nthreads, int const dim, struct grid3
 			for (jj=0; jj < Ny; jj+=1){
 				for (kk=0; kk < Nz; kk+=1){
 					index = ii*Ny*Nz + jj*Nz + kk;
-					grid->phi[ index ] = -1.*in[ index ] / (double)(grid->N);
+					grid->phi[ index ] = -1. * in[ index ] / M_PI / 2.;
 				} // for kk
 			} // for jj
 		} // for ii
@@ -512,7 +514,10 @@ void _2nd_order_diff_3d(struct grid3D *grid, int const ii, int const jj, int con
 
 }
 
-void calculateGreenFFT(struct grid3D *grid, fftw_complex *fftgf){
+void calculateGreenFFT(int const nthreads,struct grid3D *grid, fftw_complex *fftgf){
+	omp_set_num_threads(nthreads);
+	fftw_init_threads();
+
 	double *greenFunction;
 	int N = grid->N;
 	int Nx = grid->Nx;
@@ -531,6 +536,7 @@ void calculateGreenFFT(struct grid3D *grid, fftw_complex *fftgf){
 	gf = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * 8*N);
 
 	//Initialize green function array
+	#pragma omp parallel for
 	for(int i=0;i<NNx;i++){
 		for(int j=0;j<NNy;j++){
 			for(int k=0;k<NNz;k++){
@@ -539,6 +545,7 @@ void calculateGreenFFT(struct grid3D *grid, fftw_complex *fftgf){
 		}
 	}
 	//Construct green function
+	#pragma omp parallel for
 	for(int i=0;i<Nx;i++){
 		for(int j=0;j<Ny;j++){
 			for(int k=0;k<Nz;k++){
@@ -548,7 +555,7 @@ void calculateGreenFFT(struct grid3D *grid, fftw_complex *fftgf){
 			}
 		}
 	}
-
+	#pragma omp parallel for
 	for(int i=Nx+1;i<NNx;i++){
 		for(int j=0;j<Ny;j++){
 			for(int k=0;k<Nz;k++){
@@ -556,6 +563,7 @@ void calculateGreenFFT(struct grid3D *grid, fftw_complex *fftgf){
 			}
 		}
 	}
+	#pragma omp parallel for
 	for(int i=0;i<Nx;i++){
 		for(int j=Ny+1;j<NNy;j++){
 			for(int k=0;k<Nz;k++){
@@ -563,7 +571,7 @@ void calculateGreenFFT(struct grid3D *grid, fftw_complex *fftgf){
 			}
 		}
 	}
-
+	#pragma omp parallel for
 	for(int i=Nx+1;i<NNx;i++){
 		for(int j=Ny+1;j<NNy;j++){
 			for(int k=0;k<Nz;k++){
@@ -571,8 +579,9 @@ void calculateGreenFFT(struct grid3D *grid, fftw_complex *fftgf){
 			}
 			
 		}
-	}
+	}	
 
+	#pragma omp parallel for
 	for(int i=0;i<NNx;i++){
 		for(int j=0;j<NNy;j++){
 			for(int k=Nz+1;k<NNz;k++){
@@ -580,7 +589,7 @@ void calculateGreenFFT(struct grid3D *grid, fftw_complex *fftgf){
 			}
 		}
 	}
-
+	#pragma omp parallel for
 	for(int i=0;i<NNx;i++){
 		for(int j=0;j<NNy;j++){
 			for(int k=0;k<NNz;k++){
@@ -590,6 +599,7 @@ void calculateGreenFFT(struct grid3D *grid, fftw_complex *fftgf){
 			
 		}
 	}
+	fftw_plan_with_nthreads(nthreads);
 	p2 = fftw_plan_dft_3d(NNx, NNy,NNz, gf, fftgf, FFTW_FORWARD, FFTW_ESTIMATE);
 	fftw_execute(p2);
 	fftw_destroy_plan(p2);
@@ -598,7 +608,10 @@ void calculateGreenFFT(struct grid3D *grid, fftw_complex *fftgf){
 	
 }
 
-void isolatedPotential(struct grid3D *grid , fftw_complex *fftgf){
+void isolatedPotential(int const nthreads,struct grid3D *grid , fftw_complex *fftgf){
+	omp_set_num_threads(nthreads);
+	fftw_init_threads();
+
 	double *densityPad;
 	int N = grid->N;
 	int Nx = grid->Nx;
@@ -621,7 +634,7 @@ void isolatedPotential(struct grid3D *grid , fftw_complex *fftgf){
 	fftdp = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * 8*N);
 	phi = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * 8*N);
 	ifftphi = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * 8*N);
-
+	#pragma omp parallel for
 	for(int i=0;i<NNx;i++){
 		for(int j=0;j<NNy;j++){
 			for(int k=0;k<NNz;k++){
@@ -636,7 +649,7 @@ void isolatedPotential(struct grid3D *grid , fftw_complex *fftgf){
 		}
 	}
 	
-
+	#pragma omp parallel for
 	for(int i=0;i<NNx;i++){
 		for(int j=0;j<NNy;j++){
 			for(int k=0;k<NNz;k++){
@@ -648,10 +661,11 @@ void isolatedPotential(struct grid3D *grid , fftw_complex *fftgf){
 	}
 
 	//fft
+	fftw_plan_with_nthreads(nthreads);
 	p1 = fftw_plan_dft_3d(NNx, NNy, NNz, dp, fftdp, FFTW_FORWARD, FFTW_ESTIMATE);
 	fftw_execute(p1);
 	fftw_destroy_plan(p1);
-
+	#pragma omp parallel for
 	for(int i=0;i<NNx;i++){
 		for(int j=0;j<NNy;j++){
 			for(int k=0;k<NNz;k++){
@@ -664,20 +678,21 @@ void isolatedPotential(struct grid3D *grid , fftw_complex *fftgf){
 	}
 
 	//ifft
+	fftw_plan_with_nthreads(nthreads);
 	q = fftw_plan_dft_3d(NNx, NNy, NNz, phi, ifftphi, FFTW_BACKWARD, FFTW_ESTIMATE);
 	fftw_execute(q);
 	fftw_destroy_plan(q);
-
+	#pragma omp parallel for
 	for(int i=0;i<Nx;i++){
 		for(int j=0;j<Ny;j++){
 			for(int k=0;k<Nz;k++){
 				int index1 = i*Nx*Ny+j*Nx+k;//index for N size grid.
 				int index2 = i*NNx*NNy + j*NNx + k;// index for 2N size grid.
-				grid->phi[index1] = -grid->dx * grid->dy * grid->dz * sqrt(pow(ifftphi[index2][0],2)+pow(ifftphi[index2][1],2));
+				grid->phi[index1] = -1.0/grid->dx /(8*N)* sqrt(pow(ifftphi[index2][0],2)+pow(ifftphi[index2][1],2));
 			}
 		}		
 	}
-
+	#pragma omp parallel for
 	for (int i=0; i < Nx; i++){
 		for (int j=0; j < Ny; j++){  
 			for(int k=0 ; k < Nz ; k++){
@@ -697,10 +712,11 @@ void isolatedPotential(struct grid3D *grid , fftw_complex *fftgf){
 void Weight(struct grid3D *grid,struct particle3D *particle,int type){
 
 	//Initialize Density field
+	#pragma omp parallel for
 	for(int i=0 ; i < grid->N ; i++){
 		grid->density[i]=0.0;
 	}
-
+	#pragma omp parallel for
 	for(int i=0;i < particle->number;i++){
 		int lx,ly,lz,sx,sy,sz;
 		double shift = -grid->L/2;	//make (0,0) to be in the center of grid.
@@ -791,6 +807,7 @@ void Weight(struct grid3D *grid,struct particle3D *particle,int type){
 }
 void WeightForce(struct grid3D *grid,struct particle3D *particle,int type){
 	//type = 0/1/2  => NGP/CIC/TSC
+	#pragma omp parallel for
 	for(int i=0;i < particle->number;i++){
 		int lx,ly,lz,sx,sy,sz;
 		double shift = -grid->L/2;	//make (0,0) to be in the center of grid.
@@ -981,7 +998,7 @@ void rk4_end(struct particle3D *particle, struct rk43D *rk4, double dt, int nthr
 }
 void periodic_boundary(double position, double length){
 	int sign = position/abs(position);
-	position = sign * remainder(abs(position + sign*length/2), length) - sign*length/2;
+	position = sign * (abs(position + sign*length/2) % length) - sign*length/2;
 	cout << "A particle reaches the boundary." << endl;
 }
 void boundary_check(int boundary, struct particle3D *particle, double L){
