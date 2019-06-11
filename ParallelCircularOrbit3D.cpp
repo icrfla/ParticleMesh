@@ -41,13 +41,13 @@ struct grid3D{
 	double *Fz;
 };
 struct rk43D{
-        int step1;
-        int step2;
-        double *ax;
-        double *ay;
+  int step1;
+  int step2;
+  double *ax;
+  double *ay;
 	double *az;
-        double *vx;
-        double *vy;
+  double *vx;
+  double *vy;
 	double *vz;
 };
 void Weight(struct grid3D *grid,struct particle3D *particle,int type);
@@ -74,15 +74,16 @@ void locateMemoryGrid(struct grid3D *grid);
 void freeMemoryGrid(struct grid3D *grid);
 
 
+
 int main( int argc, char *argv[] ){
 	//================Simulation Constants
-	int weightFunction = 2;  	//0/1/2 : NGP/CIC/TSC
-	int orbitIntegration = 2;	//0/1/2 : KDK/DKD/RK4
-	int poissonSolver = 1;		//0/1   : fft/isolated
-	int boundary = 2;           	//0/1/2 : periodic/isolated/no boundary
+	int weightFunction = 1;  	//0/1/2 : NGP/CIC/TSC
+	int orbitIntegration = 1;	//0/1/2 : KDK/DKD/RK4
+	int poissonSolver = 0;		//0/1   : fft/isolated
+	int boundary = 0;           	//0/1/2 : periodic/isolated/no boundary
 	int dim = 3;				
 	double L = 10.0;				//Length of box (from -L/2 ~ L/2)
-	int Nx = 100;				//Number of grid in x direction. (should be odd number)
+	int Nx = 128;				//Number of grid in x direction. (should be odd number)
 	int NParticle = 2;//Number of particles used in simulation
 	double massParticle = 1.0;
 	double dt = 1.0e-2;
@@ -94,10 +95,16 @@ int main( int argc, char *argv[] ){
 	string swei[3] = {"NGP", "CIC", "TSC"};
 	string sorb[3] = {"KDK", "DKD", "RK4"};
 	string spoi[2] = {"fft", "isolated"};
-	string sbou[3] = {"periodic", "isolated", "no boundary"};
+	string sbou[3] = {"periodic", "isolated", "noboundary"};
 
 	cout << "Setup Summary" << endl;
-	cout << swei[weightFunction] << ", " << sorb[orbitIntegration] << ", " << spoi[poissonSolver] << ", " << sbou[boundary] << endl;
+	cout << swei[weightFunction] << ", " << sorb[orbitIntegration] 
+	<< ", " << spoi[poissonSolver] << ", " << sbou[boundary] 
+	<< ",Nx = " << Nx << ", L = " << L
+	<< endl;
+
+  double start = omp_get_wtime();
+
 	//================Structs
 	struct grid3D grid;
 	struct particle3D myParticle;
@@ -108,6 +115,9 @@ int main( int argc, char *argv[] ){
 	//Output to a file
 	FILE *output;
 	output = fopen("result.txt","w");
+	fprintf(output, "%s_%s_%s_%s\n", swei[weightFunction].c_str(), sorb[orbitIntegration].c_str(), 
+		spoi[poissonSolver].c_str(), sbou[boundary].c_str() );
+
 	//================Random number generator.
 		//To use : d=gsl_rng_uniform(rng);
 		// gsl_rng *rng;
@@ -130,6 +140,8 @@ int main( int argc, char *argv[] ){
 		
 		myParticle.number = NParticle;
 		locateMemoryParticle(&myParticle,NParticle);
+    // InitializeParticlePosition(myParticle);
+    fprintf(output, "Nx=%d_L=%.1f_nthreads=%d_Npart=%d\n", Nx, L, nthreads, myParticle.number );
 
 		
 		if(orbitIntegration == 2){
@@ -152,7 +164,7 @@ int main( int argc, char *argv[] ){
 		myParticle.mass[0]=4.0;
 		myParticle.mass[1]=1.0;
 		double scale = myParticle.mass[0] + myParticle.mass[1];
-		double rp = 1.0*scale; // distance between particles, same unit with L
+		double rp = 0.25*scale; // distance between particles, same unit with L
 
 		if(orbitIntegration == 2){
 			buffParticle.mass[0] = myParticle.mass[0];
@@ -170,19 +182,21 @@ int main( int argc, char *argv[] ){
 		myParticle.x[1] = -1. * rp * myParticle.mass[0] / scale;
 		myParticle.y[1] = 0.0;
 		myParticle.z[1] = 0.0;
+		for (int i =0; i< myParticle.number; i++){
+			printf("p[%d] at (%f,%f) \n",i+1, myParticle.x[i],myParticle.y[i]);
+		}
 		
-
 		Weight(&grid,&myParticle,weightFunction);
-		if ( poissonSolver == 0 ) 	poisson_solver_fft_force_3d(nthreads, dim, &grid);
+		if ( poissonSolver == 0 ) 	    poisson_solver_fft_force_3d(nthreads, dim, &grid);
 		else if ( poissonSolver == 1 )	isolatedPotential(nthreads,&grid,fftgf);
 		WeightForce(&grid,&myParticle,weightFunction);
 
 	//Initialize Initial velocity
 		myParticle.vx[0] = 0.0;
-		myParticle.vy[0] = -sqrt(fabs(myParticle.Fx[0]*myParticle.mass[1])/myParticle.mass[0]);
+		myParticle.vy[0] = -sqrt( fabs(myParticle.Fx[0]*myParticle.x[0]/myParticle.mass[0]) );
 		myParticle.vz[0] = 0.0;
 		myParticle.vx[1] = 0.0;
-		myParticle.vy[1] = sqrt(fabs(myParticle.Fx[1]*myParticle.mass[0])/myParticle.mass[1]);
+		myParticle.vy[1] = sqrt( fabs(myParticle.Fx[1]*myParticle.x[1]/myParticle.mass[1]) );
 		//myParticle.vy[1] = 20;
 		myParticle.vz[1] = 0.0;
 
@@ -192,7 +206,6 @@ int main( int argc, char *argv[] ){
 			grid.Fy[i]=0.0;		
 		}
 	//Test 
-		
 
 	// printf("%f\t%f\t%f\n",myParticle.Fx[0],myParticle.Fy[0],myParticle.Fz[0]);
 	// printf("%f\t%f\t%f\n",myParticle.Fx[1],myParticle.Fy[1],myParticle.Fz[1]);
@@ -212,18 +225,22 @@ int main( int argc, char *argv[] ){
 	{
 	fprintf(output,"%f\t%f\t",myParticle.x[0],myParticle.y[0]);
 	fprintf(output,"%f\t%f\n",myParticle.x[1],myParticle.y[1]);
-	printf("(Fx,\tFy)\t= (%.4e,\t%4e)\t\t(ax,\tay)\t= (%.4e,\t%.4e)\n",myParticle.Fx[0],myParticle.Fy[0]
+	printf("p1 (Fx,\tFy)\t= (%.4e,\t%4e)\t\t(ax,\tay)\t= (%.4e,\t%.4e)\n"
+		,myParticle.Fx[0],myParticle.Fy[0]
 	  ,myParticle.Fx[0]/myParticle.mass[0],myParticle.Fy[0]/myParticle.mass[0]);
-	printf("(Fx,\tFy)\t= (%.4e,\t%4e)\t\t(ax,\tay)\t= (%.4e,\t%.4e)\n",myParticle.Fx[1],myParticle.Fy[1]
+	printf("p2 (Fx,\tFy)\t= (%.4e,\t%4e)\t\t(ax,\tay)\t= (%.4e,\t%.4e)\n"
+		,myParticle.Fx[1],myParticle.Fy[1]
 	  ,myParticle.Fx[1]/myParticle.mass[1],myParticle.Fy[1]/myParticle.mass[1]);
-	printf("(V1x,\tV1y)\t= (%.4e,\t%.4e)\t\t(V2x,\tV2y)\t= (%.4e,\t%.4e)\n",myParticle.vx[0],myParticle.vy[0]
+	printf("(V1x,\tV1y)\t= (%.4e,\t%.4e)\t\t(V2x,\tV2y)\t= (%.4e,\t%.4e)\n"
+		,myParticle.vx[0],myParticle.vy[0]
 	  ,myParticle.vx[1],myParticle.vy[1]);
 	}		
 		
 
 	//Time evolution loop
 	double t = 0.0;
-	for(int st=0;st<1000;st++){
+  int total_st = 1e3;
+	for(int st=0;st<total_st;st++){
 	 	//Deposit Particles to grid
 	 	Weight(&grid,&myParticle,weightFunction);
 
@@ -343,8 +360,6 @@ int main( int argc, char *argv[] ){
 			// 	printf("Step : %d \n",st);
 			// }
  	}
-
-	
 	
 	// //Print out Density/Potential field
 	// 	for(int i=0;i<grid.N;i++){
@@ -369,9 +384,15 @@ int main( int argc, char *argv[] ){
 	if(poissonSolver == 1){
 		free(fftgf);
 	}
+
+  double end = omp_get_wtime();
+
+  fprintf(output, "Total Time used: %.2e s.\n", end - start);
+  fclose(output);
+  printf("Total Time used: %.2e s.\n", end - start);
+
 	return 0;
 }
-
 void poisson_solver_fft_force_3d(int const nthreads, int const dim, struct grid3D *grid){
 	
 	omp_set_num_threads( nthreads );
@@ -395,7 +416,7 @@ void poisson_solver_fft_force_3d(int const nthreads, int const dim, struct grid3
 	// phia = (double*) malloc( sizeof(double) * Nx*Ny*Nz );
 
 	double *in;
-	in = (double*) malloc( sizeof(double) * Nx*Ny*Nz );
+	in = (double*) malloc( sizeof(double) * 2*Nx*Ny*Nzh );
 	fftw_complex *out;
 	out = (fftw_complex*) fftw_malloc( sizeof(fftw_complex) * Nx*Ny*Nzh);
 
@@ -439,18 +460,18 @@ void poisson_solver_fft_force_3d(int const nthreads, int const dim, struct grid3
 		for (ii=0; ii < Nx; ii+=1){
 			if (2*ii < Nx) {fi = ii;}
 			else           {fi = Nx-ii;}
-			kxx = pow((double)(fi+1), 2.);
+			kxx = pow((double)(fi), 2.);
 			for (jj=0; jj < Ny; jj+=1){
 				if (2*jj < Ny) {fj = jj;}
 				else           {fj = Ny-jj;}
-				kyy = pow((double)(fj+1), 2.);      
+				kyy = pow((double)(fj), 2.);      
 				for (kk=0; kk < Nzh ; kk+=1){
-					kzz = pow((double)(kk+1), 2.);        
+					kzz = pow((double)(kk), 2.);        
 					if(ii != 0 || jj != 0 || kk!=0){
 						index = (ii*Ny+ jj)*Nzh + kk;
 						out[ index ][0] /= ((kxx+kyy+kzz)) ;
 						out[ index ][1] /= ((kxx+kyy+kzz)) ;
-						} 
+					} 
 				} // for kk
 			} // for jj
 		} // for ii
@@ -466,7 +487,7 @@ void poisson_solver_fft_force_3d(int const nthreads, int const dim, struct grid3
 			for (jj=0; jj < Ny; jj+=1){
 				for (kk=0; kk < Nz; kk+=1){
 					index = ii*Ny*Nz + jj*Nz + kk;
-					grid->phi[ index ] = -1. * in[ index ] / M_PI / 2.;
+					grid->phi[ index ] = -1. * in[ index ] / M_PI / (double)(grid->L) ;
 				} // for kk
 			} // for jj
 		} // for ii
@@ -492,7 +513,6 @@ void poisson_solver_fft_force_3d(int const nthreads, int const dim, struct grid3
 		fftw_free(out);
 	}
 }
-
 void _2nd_order_diff_3d(struct grid3D *grid, int const ii, int const jj, int const kk ) {
 
 	double factor1 = -1./(2.*grid->dx);
@@ -513,7 +533,6 @@ void _2nd_order_diff_3d(struct grid3D *grid, int const ii, int const jj, int con
 		                    - grid->phi[ ii*Nx*Ny  + jj*Nx + ((Nz+kk-1)%Nz)] );
 
 }
-
 void calculateGreenFFT(int const nthreads,struct grid3D *grid, fftw_complex *fftgf){
 	omp_set_num_threads(nthreads);
 	fftw_init_threads();
@@ -607,7 +626,6 @@ void calculateGreenFFT(int const nthreads,struct grid3D *grid, fftw_complex *fft
 	free(greenFunction);
 	
 }
-
 void isolatedPotential(int const nthreads,struct grid3D *grid , fftw_complex *fftgf){
 	omp_set_num_threads(nthreads);
 	fftw_init_threads();
@@ -708,7 +726,6 @@ void isolatedPotential(int const nthreads,struct grid3D *grid , fftw_complex *ff
 	fftw_free(ifftphi);
 
 }
-
 void Weight(struct grid3D *grid,struct particle3D *particle,int type){
 
 	//Initialize Density field
@@ -1024,6 +1041,7 @@ void boundary_check(int boundary, struct particle3D *particle, double L){
 		}
 	}
 }
+
 //Functions to locate memory and free memory of different struct.
 void locateMemoryParticle(struct particle3D *particle,int N){
 	particle->mass = (double*)malloc(N*sizeof(double));
