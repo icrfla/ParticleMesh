@@ -84,14 +84,18 @@ int main( int argc, char *argv[] ){
 	MPI_Comm_rank( MPI_COMM_WORLD, &MyRank );
 	MPI_Comm_size( MPI_COMM_WORLD, &NRank );
 
+	// Wall-Time
+	double t1, t2;
+	t1 = MPI_Wtime();
+
 	//================Simulation Constants
-	int weightFunction = 2;  	//0/1/2 : NGP/CIC/TSC
-	int orbitIntegration = 0;	//0/1/2 : KDK/DKD/RK4
-	int poissonSolver = 1;		//0/1   : fft/isolated
+	int weightFunction = 1;  	//0/1/2 : NGP/CIC/TSC
+	int orbitIntegration = 1;	//0/1/2 : KDK/DKD/RK4
+	int poissonSolver = 0;		//0/1   : fft/isolated
 	int boundary = 2;           	//0/1/2 : periodic/isolated/no boundary
 	int dim = 3;				
 	double L = 10.0;				//Length of box (from -L/2 ~ L/2)
-	int Nx = 50;				//Number of grid in x direction. (should be odd number)
+	int Nx = 128;				//Number of grid in x direction. (should be odd number)
 	int NParticle = 2;//Number of particles used in simulation
 	double massParticle = 1.0;
 	double dt = 1.0e-2;
@@ -103,7 +107,8 @@ int main( int argc, char *argv[] ){
 	string sbou[3] = {"periodic", "isolated", "no boundary"};
 
 	cout << "Setup Summary" << endl;
-	cout << swei[weightFunction] << ", " << sorb[orbitIntegration] << ", " << spoi[poissonSolver] << ", " << sbou[boundary] << endl;
+	cout << swei[weightFunction] << ", " << sorb[orbitIntegration] << ", " << spoi[poissonSolver] << ", " << sbou[boundary] 
+		<< ", Nx = " << Nx << ", L = " << L << endl; 
 	//================Structs
 	struct grid3D grid;
 	struct particle3D myParticle;
@@ -113,7 +118,7 @@ int main( int argc, char *argv[] ){
 
 	//Output to a file
 	FILE *output;
-	output = fopen("result.txt","w");
+	output = fopen("MPIresult.txt","w");
 	//================Random number generator.
 		//To use : d=gsl_rng_uniform(rng);
 		// gsl_rng *rng;
@@ -383,21 +388,39 @@ int main( int argc, char *argv[] ){
 		free(fftgf);
 	}
 
+	// Wall-Time
+	t2 = MPI_Wtime();
+	printf("MPI_Wtime: %1.2f\n", t2-t1);fflush(stdout);
+	
 	MPI_Finalize();
 	return 0;
 }
 
 void poisson_solver_fft_force_3d(int const dim, struct grid3D *grid){
 
+	int NRank, MyRank;
+	MPI_Comm_rank( MPI_COMM_WORLD, &MyRank );
+	MPI_Comm_size( MPI_COMM_WORLD, &NRank );
+
 	//double G_const = 6.67408e-8; // #g^-1 s^-2 cm^3 
 	double G_const = 1.0; // #g^-1 s^-2 cm^3
-	int const Nx = grid->Nx;
-	int const Ny = grid->Ny; 
-	int const Nz = grid->Nz;
+	//int const Nx = grid->Nx;
+	//int const Ny = grid->Ny; 
+	//int const Nz = grid->Nz;
+	ptrdiff_t Nx = grid->Nx;
+	ptrdiff_t Ny = grid->Ny;
+	ptrdiff_t Nz = grid->Nz;
 	int const total_n = Nx * Ny * Nz;
 	int const Nzh = (Nz/2+1);
 	double dNx = (double) (Nx), dNy = (double) (Ny), dNz = (double) (Nz); // default Nx=Ny=Nz
-	int ii, jj, kk, index;
+	//int ii, jj, kk, index, index2;
+	int index, index2;
+	fftw_mpi_init();	
+
+	ptrdiff_t alloc_local, local_n0, local_0_start, ii, jj;
+	//ptrdiff_t alloc_local2, local_n0, local2_0_start, iii, jjj;
+	alloc_local  = fftw_mpi_local_size_3d(Nx, Ny, Nzh,   MPI_COMM_WORLD, &local_n0,  &local_0_start);
+	//alloc_local2 = fftw_mpi_local_size_3d(Nx, Ny, Nzh*2, MPI_COMM_WORLD, &local_n0, &local2_0_start);
 
 	// fftw_complex *fftsigma_a;
 	// fftsigma_a = (fftw_complex*) fftw_malloc( sizeof(fftw_complex) * Nx*Ny*Nzh);
@@ -407,27 +430,31 @@ void poisson_solver_fft_force_3d(int const dim, struct grid3D *grid){
 	// phia = (double*) malloc( sizeof(double) * Nx*Ny*Nz );
 
 	double *in;
-	in = (double*) malloc( sizeof(double) * Nx*Ny*Nz );
+	//in = (double*) malloc( sizeof(double) * 2*Nx*Ny*Nzh );
 	fftw_complex *out;
-	out = (fftw_complex*) fftw_malloc( sizeof(fftw_complex) * Nx*Ny*Nzh);
+	//out = (fftw_complex*) fftw_malloc( sizeof(fftw_complex) * Nx*Ny*Nzh);
 
 	fftw_plan p, q;
 
-	fftw_mpi_init();
-
-	for (ii=0; ii < Nx; ii+=1) {
-		for (jj=0; jj < Ny; jj+=1) {
-			for (kk=0; kk < Nz; kk+=1){
-				index = (ii*Ny + jj)*Nz + kk;	
-				in[ index ] = grid->density[ index ];
+	
+	in  = fftw_alloc_real(2*alloc_local);
+	out = fftw_alloc_complex(alloc_local);	
+	
+	for (int ii=0; ii < local_n0; ii+=1) {
+		for (int jj=0; jj < Ny; jj+=1) {
+			for (int kk=0; kk < Nz; kk+=1){
+				int I = local_0_start + ii;
+				index  = (ii*Ny + jj)*(2*Nzh) + kk;
+				index2 = ( I*Ny + jj)*Nz + kk; 	
+				in[ index ] = grid->density[ index2 ];
 				// phia[ index ] = 0.;
 			} // for kk
 		} // for jj
 	} // for ii
 
-	for (ii=0; ii < Nx; ii+=1) {
-		for (jj=0; jj < Ny; jj+=1) {
-			for (kk=0; kk < Nzh; kk+=1){
+	for (int ii=0; ii < local_n0; ii+=1) {
+		for (int jj=0; jj < Ny; jj+=1) {
+			for (int kk=0; kk < Nzh; kk+=1){
 				index = (ii*Ny + jj)*Nzh + kk;
 				out[ index ][0] = 0.;
 				out[ index ][1] = 0.;
@@ -441,50 +468,79 @@ void poisson_solver_fft_force_3d(int const dim, struct grid3D *grid){
 	fftw_execute(p);
 
 	double kxx, kyy, kzz;
-	int fi, fj, fk;
-	for (ii=0; ii < Nx; ii+=1){
-		if (2*ii < Nx) {fi = ii;}
-		else           {fi = Nx-ii;}
-		kxx = pow((double)(fi)*2.*M_PI/grid->L, 2.);
-		for (jj=0; jj < Ny; jj+=1){
+	int fi, fj;
+	for (int ii=0; ii < local_n0; ii+=1){
+		int I2 = ii + local_0_start; 
+		if (2*I2 < Nx) {fi = I2;}
+		else           {fi = Nx-I2;}
+		kxx = pow((double)(fi), 2.);
+		for (int jj=0; jj < Ny; jj+=1){
 			if (2*jj < Ny) {fj = jj;}
 			else           {fj = Ny-jj;}
-			kyy = pow((double)(fj)*2.*M_PI/grid->L, 2.);      
-			for (kk=0; kk < Nzh ; kk+=1){
-				kzz = pow((double)(kk)*2.*M_PI/grid->L, 2.);        
+			kyy = pow((double)(fj), 2.); 
+			for (int kk=0; kk < Nzh ; kk+=1){
+				kzz = pow((double)(kk), 2.);
 				if(ii != 0 || jj != 0 || kk!=0){
 					index = (ii*Ny+ jj)*Nzh + kk;
-					out[ index ][0] *= ( -4. * M_PI * G_const / ((kxx+kyy+kzz)) );
-					out[ index ][1] *= ( -4. * M_PI * G_const / ((kxx+kyy+kzz)) );
-					} 
+					out[ index ][0] /= ((kxx+kyy+kzz)) ;
+					out[ index ][1] /= ((kxx+kyy+kzz)) ;
+				} 
 			} // for kk
 		} // for jj
 	} // for ii
   
 	/////////// inverse fft ///////////
 	fftw_execute(q);
-
+	double send_buf[grid->N/2], recv_buf[grid->N/2];
 	/////////// normalization ///////////
-	for (ii=0; ii < Nx; ii+=1){
-		for (jj=0; jj < Ny; jj+=1){
-			for (kk=0; kk < Nz; kk+=1){
-				index = ii*Ny*Nz + jj*Nz + kk;
-				grid->phi[ index ] = -1.*in[ index ] / (double)(grid->N);
+	for (int ii=0; ii < local_n0; ii+=1){
+		for (int jj=0; jj < Ny; jj+=1){
+			for (int kk=0; kk < Nz; kk+=1){
+				int I = ii + local_0_start;
+				index2 =  I*Ny*Nz + jj*Nz + kk;
+				index  = (ii*Ny + jj)*(2*Nzh) + kk;
+				int index3 = (ii*Ny + jj)*Nz + kk;
+				//index  = ii*Ny*Nz + jj*Nz + kk;
+				grid->phi[ index2 ] = -1. * in[ index ] / M_PI / (double)(grid->L) ;
+				send_buf[index3]    = grid->phi[index2];	
 			} // for kk
 		} // for jj
 	} // for ii
-  
-	for (ii=0; ii < Nx; ii+=1){
-		for (jj=0; jj < Ny; jj+=1){
-			for (kk=0; kk < Nz ; kk+=1){
-				_2nd_order_diff_3d(grid, ii, jj, kk);        
+	
+
+	if (MyRank == 0){
+		MPI_Send(&send_buf, grid->N/2, MPI_DOUBLE, 1, 11, MPI_COMM_WORLD);
+		MPI_Recv(&recv_buf, grid->N/2, MPI_DOUBLE, 1, 12, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+	}
+	else{
+		MPI_Recv(&recv_buf, grid->N/2, MPI_DOUBLE, 0, 11, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+		MPI_Send(&send_buf, grid->N/2, MPI_DOUBLE, 0, 12, MPI_COMM_WORLD);
+	}
+
+	for(int ii=0;ii<local_n0;ii++){
+		for(int jj=0;jj<Ny;jj++){
+			for(int kk=0;kk<Nz;kk++){
+				int YourRank = ((MyRank+1)%2);
+				int I = ii + YourRank*local_n0;
+				index2 =  I*Ny*Nz + jj*Nz + kk;
+				index = ii*Ny*Nz + jj*Nz + kk;//index for N size grid.
+				grid->phi[index2] = recv_buf[index];
 			}
 		}
 	}
 
+  
+	for (int ii=0; ii < Nx; ii+=1){
+		for (int jj=0; jj < Ny; jj+=1){
+			for (int kk=0; kk < Nz ; kk+=1){
+				_2nd_order_diff_3d(grid, ii, jj, kk);        
+			}
+		}
+	}
+	
 	fftw_destroy_plan(p);
 	fftw_destroy_plan(q);
-	fftw_cleanup();
+	fftw_mpi_cleanup();
 
 	free(in);
 	// free(phia);
@@ -944,19 +1000,21 @@ void WeightForce(struct grid3D *grid,struct particle3D *particle,int type){
 }
 void kick(struct particle3D *particle , double dt){
 	double ax,ay,az;
-#ifdef CHECK_THIS_LATER
 	int NRank, MyRank;
 	MPI_Comm_rank( MPI_COMM_WORLD, &MyRank );
 	MPI_Comm_size( MPI_COMM_WORLD, &NRank );
 	
 	int N 	= particle->number;
 	int ini = int(MyRank*N/2);
-	int fin = (MyRank+1) * int(N/2) + MyRank * remainder(MyRank, 2);
-	int YourRank = remainder(MyRank,2);
+	int fin = (MyRank+1) * int(N/2) + MyRank * (N%2);
+	int YourRank = ((MyRank+1)%2);
+	int yini = int(YourRank*N/2);
+	int yfin = (YourRank+1) * int(N/2) + YourRank * (N%2);
+
+	double send_vx[N], send_vy[N], send_vz[N];
+	double recv_vx[N], recv_vy[N], recv_vz[N];
 
 	for(int i = ini ; i<fin ; i++){
-#endif
-	for(int i=0 ; i<particle->number ; i++){
 		//Cauculate the acceleration of each particle.
 		ax = particle->Fx[i] / particle->mass[i];
 		ay = particle->Fy[i] / particle->mass[i];
@@ -966,7 +1024,43 @@ void kick(struct particle3D *particle , double dt){
 		particle->vx[i] += ax * dt;
 		particle->vy[i] += ay * dt;
 		particle->vz[i] += az * dt;
+		send_vx[i] = particle->vx[i];
+		send_vy[i] = particle->vy[i];
+		send_vz[i] = particle->vz[i];
 	}
+	
+	if (MyRank == 0){
+		MPI_Send(&send_vx, N, MPI_DOUBLE, 1, 111, MPI_COMM_WORLD);
+		MPI_Send(&send_vy, N, MPI_DOUBLE, 1, 112, MPI_COMM_WORLD);
+		MPI_Send(&send_vz, N, MPI_DOUBLE, 1, 113, MPI_COMM_WORLD);
+	}
+	else{
+		MPI_Send(&send_vx, N, MPI_DOUBLE, 0, 121, MPI_COMM_WORLD);
+		MPI_Send(&send_vy, N, MPI_DOUBLE, 0, 122, MPI_COMM_WORLD);
+		MPI_Send(&send_vz, N, MPI_DOUBLE, 0, 123, MPI_COMM_WORLD);
+
+		MPI_Recv(&recv_vx, N, MPI_DOUBLE, 0, 111, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+		MPI_Recv(&recv_vy, N, MPI_DOUBLE, 0, 112, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+		MPI_Recv(&recv_vz, N, MPI_DOUBLE, 0, 113, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+		
+		for(int i = yini ; i < yfin ; i++){
+		       particle->vx[i] = recv_vx[i];
+		       particle->vy[i] = recv_vy[i];
+		       particle->vz[i] = recv_vz[i];
+		}
+	}
+	if (MyRank == 0){
+		MPI_Recv(&recv_vx, N, MPI_DOUBLE, 1, 121, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+		MPI_Recv(&recv_vy, N, MPI_DOUBLE, 1, 122, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+		MPI_Recv(&recv_vz, N, MPI_DOUBLE, 1, 123, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+		
+		for(int i = yini ; i < yfin ; i++){
+			particle->vx[i] = recv_vx[i];
+			particle->vy[i] = recv_vy[i];
+			particle->vz[i] = recv_vz[i];
+		}
+	}
+
 }
 void drift(struct particle3D *particle , double dt){
 	for(int i=0 ; i<particle->number ; i++){
@@ -1029,20 +1123,21 @@ void rk4_end(struct particle3D *particle, struct rk43D *rk4, double dt){
 	}
 }
 void periodic_boundary(double position, double length){
-	int sign = position/abs(position);
-	position = sign * fmod(abs(position + sign*length/2), length) - sign*length/2;
-	cout << "A particle reaches the boundary." << endl;
+	int sign = position/fabs(position);
+	//position = sign * remainder(abs(position + sign*length/2), length) - sign*length/2;
+	//cout << "A particle reaches the boundary." << endl;
+	position = fmod((fmod(position, length/2.) + -1.*sign*length/2.), length/2.);
 }
 void boundary_check(int boundary, struct particle3D *particle, double L){
 	if (boundary == 0){
 		for (int i=0; i<particle->number; i++){
-			if ( abs(particle->x[i]) > L/2){
+			if ( abs(particle->x[i]) >= L/2){
 				periodic_boundary(particle->x[i],L);
 			}
-			if ( abs(particle->y[i]) > L/2){
+			if ( abs(particle->y[i]) >= L/2){
 				periodic_boundary(particle->y[i],L);
 			}
-			if ( abs(particle->z[i]) > L/2){
+			if ( abs(particle->z[i]) >= L/2){
 				periodic_boundary(particle->z[i],L);
 			}
 		}
@@ -1056,6 +1151,49 @@ void boundary_check(int boundary, struct particle3D *particle, double L){
 		}
 	}
 }
+void InitializeParticlePosition(struct particle3D *particle, double const L) {
+	srand(time(NULL));
+	int pmass = 0;
+	for (int ii=0; ii<particle->number; ii++){
+		// pmass = rand()%3 + 1;
+		pmass = 1;
+		particle->mass[ii] = (double)(pmass);
+		cout << particle->mass[ii] << endl;
+	}
+	// cout << "position" << endl;
+	// cout << (unsigned)time(NULL) << endl;
+	int prand=0;
+	double ppos = 0.0;
+	for (int ii=0; ii<particle->number; ii++){
+		// while (ppos < 0.3*L){
+		prand = rand();
+		ppos = fmod( (double)(prand), (unsigned)(time(NULL)) ) / (unsigned)(time(NULL)) * 0.4 * L;
+		
+		particle->x[ii] = pow(-1, prand) * ppos;
+		ppos = 0.0;
+		
+		prand = rand();
+		ppos = fmod( (double)(prand), (unsigned)(time(NULL)) ) / (unsigned)(time(NULL)) * 0.4 * L;
+		
+		particle->y[ii] = pow(-1, prand) * ppos;
+		ppos = 0.0;
+		
+		prand = rand();
+		ppos = fmod( (double)(prand), (unsigned)(time(NULL)) ) / (unsigned)(time(NULL)) * 0.4 * L;
+		
+		particle->z[ii] = pow(-1, prand) * ppos;
+		ppos = 0.0;
+		printf("p[%d], mass=%.2f, x=%.2f, y=%.2f, z=%.2f\n",
+				ii, particle->mass[ii], particle->x[ii], particle->y[ii], particle->z[ii]);
+		particle->vx[ii] = 0.0;
+		particle->vy[ii] = 0.0;
+		particle->vz[ii] = 0.0;
+		particle->Fx[ii] = 0.0;
+		particle->Fy[ii] = 0.0;
+		particle->Fz[ii] = 0.0;
+	}
+}
+
 //Functions to locate memory and free memory of different struct.
 void locateMemoryParticle(struct particle3D *particle,int N){
 	particle->mass = (double*)malloc(N*sizeof(double));
