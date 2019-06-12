@@ -51,12 +51,12 @@ struct rk43D{
 	double *vz;
 };
 __global__
-void phiToForce(double* phi,double* Fx,double* Fy,double* Fz,int Nx,double L){
+void phiToForce(double* phi,double* Fx,double* Fy,double* Fz,int Nx,double L,double nConst){
 	int N = Nx*Nx*Nx;
 	int const Ny = Nx;
   	int const Nz = Nx;
 	double dx = L / Nx;
-	double factor = -1./(2.0*dx);
+	double factor = -1./(2.0*dx) * nConst;
 
 	int index = blockDim.x * blockIdx.x + threadIdx.x;
     
@@ -76,11 +76,44 @@ void phiToForce(double* phi,double* Fx,double* Fy,double* Fz,int Nx,double L){
     }
 
 }
+__global__
+void overk2(double *out,int Nx,int Ny,int Nzh){
+	//Notice that *out actullay is a compelx <double> pointer array.
+
+	int N = Nx*Ny*Nzh;
+	int index = blockDim.x * blockIdx.x + threadIdx.x;
+	int fi,fj;
+	double kxx,kyy,kzz;
+
+    while(index < N){
+    	int ii = index / (Ny*Nzh);
+    	int jj = (index / Nzh) % Ny;
+    	int kk = index % Nzh;
+
+    	if (2*ii < Nx) {fi = ii;}
+		else           {fi = Nx-ii;}
+		if (2*jj < Ny) {fj = jj;}
+		else           {fj = Ny-jj;}
+
+		kxx = 1.0*fi*fi;
+		kyy = 1.0*fj*fj;
+		kzz = 1.0*kk*kk;
+
+		if(index != 0){
+			//ii != 0 || jj != 0 || kk!=0
+			out[2*index] = out[2*index] / (kxx+kyy+kzz);		//real part
+			out[2*index+1] = out[2*index+1] / (kxx+kyy+kzz);	//imaginary part
+		}   	
+
+    	index += blockDim.x*gridDim.x;
+    }
+}
 
 void Weight(struct grid3D *grid,struct particle3D *particle,int type);
 void WeightForce(struct grid3D *grid,struct particle3D *particle,int type);
 void poisson_solver_fft_force_3d(int const dim, struct grid3D *grid);
 void _2nd_order_diff_3d(struct grid3D *grid, int const ii, int const jj, int const kk );
+void _2nd_order_diff_3d_cuda(struct grid3D *grid);
 void calculateGreenFFT(struct grid3D *grid, complex<double>* fftgf);
 void isolatedPotential(struct grid3D *grid, complex<double>* fftgf);
 
@@ -90,7 +123,7 @@ void drift(struct particle3D *particle , double dt);
 void init_rk4(struct particle3D *particle, struct particle3D *buff, struct rk43D *rk4);
 void rk4_mid(struct particle3D *particle, struct particle3D *buff, struct rk43D *rk4, double dt, int weighting);
 void rk4_end(struct particle3D *particle, struct rk43D *rk4, double dt);
-void periodic_boundary(double &position, double length);
+void periodic_boundary(double position, double length);
 void boundary_check(int boundary, struct particle3D *particle, double L);
 
 //Functions to locate memory and free memory of different struct.
@@ -105,12 +138,12 @@ void freeMemoryGrid(struct grid3D *grid);
 int main( int argc, char *argv[] ){
 	//================Simulation Constants
 	int weightFunction = 1;  	//0/1/2 : NGP/CIC/TSC
-	int orbitIntegration = 0;	//0/1/2 : KDK/DKD/RK4
-	int poissonSolver = 1;		//0/1   : fft/isolated
+	int orbitIntegration = 1;	//0/1/2 : KDK/DKD/RK4
+	int poissonSolver = 0;		//0/1   : fft/isolated
 	int boundary = 0;           //0/1/2 : periodic/isolated/no boundary
 	int dim = 3;				
 	double L = 10.0;				//Length of box (from -L/2 ~ L/2)
-	int Nx = 50;				//Number of grid in x direction. (should be odd number)
+	int Nx = 256;				//Number of grid in x direction. (should be odd number)
 	int NParticle=2;//Number of particles used in simulation
 	//double massParticle=1.0;
 	double dt = 1.0e-2;
@@ -217,7 +250,7 @@ int main( int argc, char *argv[] ){
 		
 	//Time evolution loop
 	double t = 0.0;
-	for(int st=0;st <= (T/2/dt);st++){
+	for(int st=0;st < 1000;st++){
 	 	//Deposit Particles to grid
 	 	Weight(&grid,&myParticle,weightFunction);
 
@@ -349,122 +382,99 @@ int main( int argc, char *argv[] ){
 
 void poisson_solver_fft_force_3d(int const dim, struct grid3D *grid){
 	
-
-	//double G_const = 6.67408e-8; // #g^-1 s^-2 cm^3 
-	//double G_const = 1.0; // #g^-1 s^-2 cm^3
 	int const Nx = grid->Nx;
 	int const Ny = grid->Ny; 
 	int const Nz = grid->Nz;
-	//int const total_n = Nx * Ny * Nz;
 	int const Nzh = (Nz/2+1);
-	//double dNx = (double) (Nx), dNy = (double) (Ny), dNz = (double) (Nz); // default Nx=Ny=Nz
-	int ii, jj, kk, index;
 	cufftHandle p1,p2;
-	// fftw_complex *fftsigma_a;
-	// fftsigma_a = (fftw_complex*) fftw_malloc( sizeof(fftw_complex) * Nx*Ny*Nzh);
 	
-	// double *sigma_a, *phia; 
-	// sigma_a = (double*) malloc( sizeof(double) * Nx*Ny*Nz );
-	// phia = (double*) malloc( sizeof(double) * Nx*Ny*Nz );
-
-	complex<double> *out,*in;
-	in = (complex<double>*) malloc( sizeof(complex<double>) * Nx*Ny*Nz );
-	out = (complex<double>*) malloc( sizeof(complex<double>) * Nx*Ny*Nz);
+	double *in;
+	complex<double> *out;
+	in = (double*) malloc( sizeof(double) * Nx*Ny*Nz );
+	out = (complex<double>*) malloc( sizeof(complex<double>) * Nx*Ny*Nzh);
 		
 
-	for (ii=0; ii < Nx; ii+=1) {
-		for (jj=0; jj < Ny; jj+=1) {
-			for (kk=0; kk < Nz; kk+=1){
-				index = (ii*Ny + jj)*Nz + kk;
-				in[index] = complex<double>(0.,0.);	
-				in[index] += grid->density[ index ];
-				// phia[ index ] = 0.;
-			} // for kk
-		} // for jj
-	} // for ii
-
+	
 
 	/////////// fft ///////////
-	cufftDoubleComplex *data;
-    cudaMalloc((void**)&data, sizeof(cufftDoubleComplex)*Nx*Ny*Nz);
-    cudaMemcpy(data, in, sizeof(double)*Nx*Ny*Nz*2, cudaMemcpyHostToDevice);
+	cufftDoubleReal *dataIn;
+	cufftDoubleComplex *dataOut;
+    cudaMalloc((void**)&dataIn, sizeof(cufftDoubleReal)*Nx*Ny*Nz);
+    cudaMalloc((void**)&dataOut, sizeof(cufftDoubleComplex)*Nx*Ny*Nzh);
+    cudaMemcpy(dataIn, grid->density, sizeof(cufftDoubleReal)*Nx*Ny*Nz, cudaMemcpyHostToDevice);
 	
 	//cufft
-	if (cufftPlan3d(&p1,Nx,Ny,Nz, CUFFT_Z2Z) != CUFFT_SUCCESS) {
-        printf("CUFFT error: Plan creation failed.\n");
+	if (cufftPlan3d(&p1,Nx,Ny,Nz, CUFFT_D2Z) != CUFFT_SUCCESS) {
+        printf("CUFFT error: Plan D2Z creation failed.\n");
 		exit(1);
     }
-    if (cufftExecZ2Z(p1, data, data, CUFFT_FORWARD) != CUFFT_SUCCESS) {
-		printf("CUFFT error: ExecZ2Z forward failed.\n");
+    if (cufftExecD2Z(p1, dataIn, dataOut) != CUFFT_SUCCESS) {
+		printf("CUFFT error: ExecD2Z forward failed.\n");
 		exit(1);
     }
-    cudaMemcpy(out, data, sizeof(double)*Nx*Ny*Nz*2, cudaMemcpyDeviceToHost);
+    cudaMemcpy(out, dataOut,sizeof(cufftDoubleComplex)*Nx*Ny*Nzh, cudaMemcpyDeviceToHost);
     cudaDeviceSynchronize();
     cufftDestroy(p1);
     
 
+	double *d_out;
+	cudaMalloc((void**)&d_out, sizeof(double)*2*Nx*Ny*Nzh);
+	cudaMemcpy(d_out,out,sizeof(double)*2*Nx*Ny*Nzh,cudaMemcpyHostToDevice);
 
-	double kxx, kyy, kzz;
-	int fi, fj, fk;
+	overk2 <<<128,128>>> (d_out,Nx,Ny,Nzh);
+
+	cudaMemcpy(out,d_out,sizeof(double)*2*Nx*Ny*Nzh,cudaMemcpyDeviceToHost);
+
+	cudaFree(d_out);
 	
-	for (ii=0; ii < Nx; ii+=1){
-		if (2*ii < Nx) {fi = ii;}
-		else           {fi = Nx-ii;}
-		kxx = pow((double)(fi), 2.);
-		for (jj=0; jj < Ny; jj+=1){
-			if (2*jj < Ny) {fj = jj;}
-			else           {fj = Ny-jj;}
-			kyy = pow((double)(fj), 2.);      
-			for (kk=0; kk < Nz ; kk+=1){
-				if (2*kk < Nz) {fk = kk;}
-				else           {fk = Nz-kk;}
-				kzz = pow((double)(fk), 2.);       
-				if(ii != 0 || jj != 0 || kk!=0){
-					index = (ii*Ny+ jj)*Nz + kk;
-					out[ index ] /= ((kxx+kyy+kzz)) ;
-					} 
-			} // for kk
-		} // for jj
-	} // for ii
+
 
 	/////////// inverse fft ///////////
-    cudaMemcpy(data, out, sizeof(double)*Nx*Ny*Nz*2, cudaMemcpyHostToDevice);
+    cudaMemcpy(dataOut, out,sizeof(cufftDoubleComplex)*Nx*Ny*Nzh, cudaMemcpyHostToDevice);
 	
 	//cufft
-	if (cufftPlan3d(&p2,Nx,Ny,Nz, CUFFT_Z2Z) != CUFFT_SUCCESS) {
+	if (cufftPlan3d(&p2,Nx,Ny,Nz, CUFFT_Z2D) != CUFFT_SUCCESS) {
         printf("CUFFT error: Plan creation failed.\n");
 		exit(1);
     }
-    if (cufftExecZ2Z(p2, data, data, CUFFT_INVERSE) != CUFFT_SUCCESS) {
-		printf("CUFFT error: ExecZ2Z forward failed.\n");
+    if (cufftExecZ2D(p2, dataOut, dataIn) != CUFFT_SUCCESS) {
+		printf("CUFFT error: ExecZ2D  failed.\n");
 		exit(1);
     }
-    cudaMemcpy(in, data, sizeof(double)*Nx*Ny*Nz*2, cudaMemcpyDeviceToHost);
+    cudaMemcpy(in, dataIn, sizeof(cufftDoubleReal)*Nx*Ny*Nz, cudaMemcpyDeviceToHost);
     cudaDeviceSynchronize();
     cufftDestroy(p2);
 
+
 	/////////// normalization ///////////
 
-	
-	for (ii=0; ii < Nx; ii+=1){
-		for (jj=0; jj < Ny; jj+=1){
-			for (kk=0; kk < Nz; kk+=1){
-				index = ii*Ny*Nz + jj*Nz + kk;
-				grid->phi[ index ] = -1. * abs(in[ index ]) / M_PI / grid->L;
-			} // for kk
-		} // for jj
-	} // for ii
+	double nConst = -1.0 / M_PI/grid->L;	//Normalization constant.
 
-	for (ii=0; ii < Nx; ii+=1){
-		for (jj=0; jj < Ny; jj+=1){
-			for (kk=0; kk < Nz ; kk+=1){
-				_2nd_order_diff_3d(grid, ii, jj, kk);        
-			}
-		}
-	}
-	
+	double* d_in;
+	double* d_Fx; 
+	double* d_Fy;
+	double* d_Fz;
 
-	cudaFree(data);
+	int size = grid->N*sizeof(double);
+
+	cudaMalloc((void**)&d_in, size);
+	cudaMalloc((void**)&d_Fx, size);
+	cudaMalloc((void**)&d_Fy, size);
+	cudaMalloc((void**)&d_Fz, size);
+
+	cudaMemcpy(d_in,in,size,cudaMemcpyHostToDevice);
+	phiToForce <<<128,128>>>(d_in,d_Fx,d_Fy,d_Fz,grid->Nx,grid->L,nConst);
+	cudaDeviceSynchronize();
+	cudaMemcpy(grid->Fx,d_Fx,size, cudaMemcpyDeviceToHost);
+	cudaMemcpy(grid->Fy,d_Fy,size, cudaMemcpyDeviceToHost);
+	cudaMemcpy(grid->Fz,d_Fz,size, cudaMemcpyDeviceToHost);
+
+	cudaFree(d_in);
+	cudaFree(d_Fx);
+	cudaFree(d_Fy);
+	cudaFree(d_Fz);
+	cudaFree(dataIn);
+	cudaFree(dataOut);
 	
 
 	free(in);
@@ -507,7 +517,7 @@ void _2nd_order_diff_3d_cuda(struct grid3D *grid) {
 	cudaMalloc((void**)&d_Fz, size);
 
 	cudaMemcpy(d_phi,grid->phi,size,cudaMemcpyHostToDevice);
-	phiToForce <<<128,32>>>(d_phi,d_Fx,d_Fy,d_Fz,grid->Nx,grid->L);
+	phiToForce <<<128,128>>>(d_phi,d_Fx,d_Fy,d_Fz,grid->Nx,grid->L,1.0);
 	cudaDeviceSynchronize();
 	cudaMemcpy(grid->Fx,d_Fx,size, cudaMemcpyDeviceToHost);
 	cudaMemcpy(grid->Fy,d_Fy,size, cudaMemcpyDeviceToHost);
@@ -1020,7 +1030,7 @@ void rk4_end(struct particle3D *particle, struct rk43D *rk4, double dt){
 		particle->vz[i] += rk4->az[i] * dt;
 	}
 }
-void periodic_boundary(double &position, double length){
+void periodic_boundary(double position, double length){
 	int sign = position/abs(position);
 	position = sign * remainder(abs(position + sign*length/2), length) - sign*length/2;
 	cout << "A particle reaches the boundary." << endl;
