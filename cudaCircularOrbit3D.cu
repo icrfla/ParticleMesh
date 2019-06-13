@@ -210,6 +210,11 @@ int main( int argc, char *argv[] ){
 	//Initialize mass of particles
 		myParticle.mass[0]=2.0;
 		myParticle.mass[1]=1.0;
+
+		if(orbitIntegration == 2){
+			buffParticle.mass[0] = myParticle.mass[0];
+			buffParticle.mass[1] = myParticle.mass[1];
+		}
 	//Initialize Initial Position of Particle.
 		// for (int i = 0; i < myParticle.number; ++i){
 		// 	myParticle.x[i]=gsl_rng_uniform(rng) * grid.L - grid.L/2;
